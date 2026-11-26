@@ -8,7 +8,7 @@ import { contextLine, markChosen } from "../format/rich.ts";
 import { isFatalHarnessError } from "../runtime/fatal.ts";
 import { errorSummary } from "../runtime/log.ts";
 import { telegramErrorSummary } from "../telegram/errors.ts";
-import { handlePanelTap, isPanelData } from "./commands/model.ts";
+import { choiceNote, handlePanelTap, isPanelData } from "./commands/model.ts";
 import { runStop } from "./commands/stop.ts";
 import { Buttons, Diffs, Retries, rememberButtons } from "./docs.ts";
 import { admit, admitIn } from "./intake.ts";
@@ -50,7 +50,7 @@ export async function handleTap(rt: ChannelRuntime, query: CallbackQuery): Promi
 	const sent = (await rt.harness.snapshot(Buttons, conversation.id, BG))?.messages[String(messageId)];
 	const context = contextLine(sent ?? ("text" in message ? (message.text ?? "") : ""), CONTEXT_CHARS);
 	const body = context === "" ? query.data : `${query.data}\n\n(button under your message: «${context}»)`;
-	const content = withTimeStamp(body, new Date());
+	const content = withTimeStamp(body, new Date(), { note: await choiceNote(rt, conversation) });
 	const input = { chatId, messageId, requestId: `tg:${chatId}:cq:${query.id}`, content };
 	const result = await admit(conversation, rt.deliver, input, BG);
 	rt.log.info(result === "admitted" ? "tap_admitted" : "update_duplicate", { chat: chatId, message: messageId });
@@ -88,7 +88,8 @@ async function retry(rt: ChannelRuntime, conversation: Conversation, tap: ErrorT
 		return;
 	}
 	const { content: old } = kept;
-	const content = typeof old === "string" ? withTimeStamp(withoutTimeStamp(old), rt.now()) : old;
+	const note = await choiceNote(rt, conversation);
+	const content = typeof old === "string" ? withTimeStamp(withoutTimeStamp(old), rt.now(), { note }) : old;
 	const input: DeliverInput = {
 		chatId: tap.chatId,
 		...(kept.replyTo === undefined ? {} : { messageId: kept.replyTo }),

@@ -19,7 +19,7 @@ export function preambleText(workdir: string | undefined, rich = false): string 
 	return [
 		"You are a personal coding agent. The user talks to you through a private Telegram chat.",
 		`Your working directory is ${workdir ?? "the service's working directory"}. You have read, write and edit tools for the files in it; paths outside it are refused. You have no shell and cannot run commands.`,
-		"Each user message starts with a line such as [2026-11-26 17:50 CET]: the local date, time and zone when the user sent it.",
+		"Each user message starts with a line such as [2026-11-26 17:50 CET · effort high · preset fast]: the local date, time and zone when the user sent it, then your effort level and preset at that time, when there are any.",
 		"Files the user sends are saved under inbox/ in the working directory; the message tells you the path. View images with the read tool.",
 		"Use the telegram_send_file tool to send a file from the workspace to the user.",
 		rich ? RICH_ANSWERS : HTML_ANSWERS,
@@ -52,13 +52,20 @@ async function readCapped(path: string): Promise<string> {
 	return `${bytes.subarray(0, MAX_INSTRUCTIONS_BYTES).toString("utf8")}\n[truncated: file is larger than 64 KB]`;
 }
 
+/** The model the agent runs on, so it can answer which model it is. */
+export function modelText(model: { readonly provider: string; readonly modelId: string } | undefined): string {
+	return model === undefined ? "Your model is not known." : `You run on ${model.provider}/${model.modelId}.`;
+}
+
 function wrap(path: string, body: string): string {
 	return `<project_instructions path=${JSON.stringify(path)}>\n${body.trim()}\n</project_instructions>`;
 }
 
 /**
- * System prompt: a constant preamble and the project instructions file. The instructions section is always present
- * (a missing file renders "none"), so the prompt cache is not invalidated by a section appearing or disappearing.
+ * System prompt: a constant preamble, the project instructions file and the model the agent runs on. The instructions
+ * section is always present (a missing file renders "none"), so the prompt cache is not invalidated by a section
+ * appearing or disappearing. A model switch changes only the model section: pi-durable appends the new text as a
+ * system message, and the prompt before it stays the same. The effort level is in the user message's stamp instead.
  */
 export function createPromptExtension(options: { instructionsPath: string; rich?: boolean }): Extension {
 	const instructions = createInstructionsReader(options.instructionsPath);
@@ -67,6 +74,7 @@ export function createPromptExtension(options: { instructionsPath: string; rich?
 		sections: [
 			section("preamble", (input) => preambleText(input.agent.cwd ?? input.env?.cwd, options.rich), { tag: false }),
 			section("agents_md", () => instructions(), { tag: false }),
+			section("model", (input) => modelText(input.agent.model)),
 		],
 	});
 }

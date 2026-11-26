@@ -13,6 +13,7 @@ import {
 	PRESET_DATA,
 	type Preset,
 	parseRef,
+	presetFor,
 	presetUse,
 	refOf,
 } from "../../agent/choices.ts";
@@ -199,6 +200,20 @@ export async function updateMenu(rt: ChannelRuntime, force = false): Promise<voi
 	} catch (error) {
 		rt.log.warn("set_commands_failed", telegramErrorSummary(error));
 	}
+}
+
+/**
+ * The chat's effort level and preset for the time stamp line of a user message, such as `effort high · preset fast`;
+ * no effort for a model without levels, undefined for neither. The model itself is named in the system prompt.
+ */
+export async function choiceNote(rt: ChannelRuntime, conversation: Conversation): Promise<string | undefined> {
+	const active = await activeOf(rt, conversation);
+	const preset = presetFor(rt.catalog, active.choice);
+	const parts = [
+		...(active.model.efforts.length > 0 ? [`effort ${active.choice.effort}`] : []),
+		...(preset === undefined ? [] : [`preset ${preset.name}`]),
+	];
+	return parts.length === 0 ? undefined : parts.join(" · ");
 }
 
 async function activeOf(rt: ChannelRuntime, conversation: Conversation): Promise<Active> {

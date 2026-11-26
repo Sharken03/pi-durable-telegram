@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { BACKGROUND_CONTEXT as BG } from "@earendil-works/chord/context";
-import { type FauxProviderHandle, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { type FauxProviderHandle, fauxAssistantMessage, type Message } from "@earendil-works/pi-ai";
 import { ChatMap } from "../../src/channel/docs.ts";
 import { CHAT, newFaux, startTestAgent, type TestAgent, tempDir } from "../helpers/agent.ts";
 import { waitFor } from "../helpers/env.ts";
 import { FakeTelegram, markupOf } from "../helpers/fake-telegram.ts";
-import { gate, gated, toolCall } from "../helpers/faux-steps.ts";
+import { gate, gated, textOf, toolCall } from "../helpers/faux-steps.ts";
 import { callbackUpdate, textUpdate } from "../helpers/updates.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -219,4 +219,38 @@ test("T-switch-mid-run: a choice made while a run works applies from its next mo
 	const answer = await waitFor(() => port.created(CHAT).find((m) => m.replyTo === 1 && m.text.startsWith("done")));
 	assert.deepEqual(requested, ["faux-think"], "the request after the tool call used the new model");
 	assert.match(answer.text, /_faux-think · low \(fast\) · /);
+});
+
+type Seen = { readonly model: string | null | undefined; readonly system: string; readonly user: string };
+
+/** What a request tells the model: the newest model section, all system messages, and the last user text. */
+function seenOf(messages: readonly Message[]): Seen {
+	const system = messages.flatMap((m) => (m.role === "system" ? [m] : []));
+	const sections = Object.assign({}, ...system.map((m) => m.sections ?? {})) as Record<string, string | null>;
+	const shown = system.map((m) => ({ content: m.content, sections: m.sections }));
+	const user = textOf(messages.findLast((m) => m.role === "user"));
+	return { model: sections.model, system: JSON.stringify(shown), user };
+}
+
+test("T-model-known: the system prompt names the model, also after a switch; effort and preset are in the stamp", async () => {
+	const faux = models();
+	const seen: Seen[] = [];
+	const answer = (text: string) => (context: { messages: Message[] }) => {
+		seen.push(seenOf(context.messages));
+		return fauxAssistantMessage(text);
+	};
+	faux.setResponses([answer("one"), answer("two"), answer("three")]);
+	const { t, port } = await setup(faux);
+	await send(t, port, 1, "hello");
+	await send(t, port, 2, "/fast");
+	await send(t, port, 3, "which model");
+	await send(t, port, 4, "/t high");
+	await send(t, port, 5, "and now");
+	assert.equal(seen[0]?.model, "<model>\nYou run on faux/faux-1.\n</model>");
+	assert.equal(seen[1]?.model, "<model>\nYou run on faux/faux-think.\n</model>", "the new model after a switch");
+	assert.notEqual(seen[1]?.system, seen[0]?.system);
+	assert.equal(seen[2]?.system, seen[1]?.system, "an effort switch leaves the system prompt as it was");
+	assert.match(seen[0]?.user ?? "", /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}[^\]·]*\]\nhello$/, "faux-1: no effort, no preset");
+	assert.match(seen[1]?.user ?? "", / · effort low · preset fast\]\nwhich model$/);
+	assert.match(seen[2]?.user ?? "", / · effort high · preset deep\]\nand now$/);
 });

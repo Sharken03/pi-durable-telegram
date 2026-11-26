@@ -14,8 +14,11 @@ test("time stamp: local date, 24-hour time and the zone name, in winter and in s
 
 test("time stamp: a line before the text, removed again only at the start", () => {
 	const date = new Date(Date.UTC(2026, 10, 26, 16, 50));
-	const stamped = withTimeStamp("What time is it?", date, "Europe/Copenhagen");
+	const stamped = withTimeStamp("What time is it?", date, { timeZone: "Europe/Copenhagen" });
 	assert.equal(stamped, "[2026-11-26 17:50 CET]\nWhat time is it?");
+	const noted = withTimeStamp("Hi", date, { timeZone: "Europe/Copenhagen", note: "effort high · preset fast" });
+	assert.equal(noted, "[2026-11-26 17:50 CET · effort high · preset fast]\nHi", "the effort and preset after a dot");
+	assert.equal(withoutTimeStamp(noted), "Hi");
 	assert.equal(withoutTimeStamp(stamped), "What time is it?");
 	assert.equal(withoutTimeStamp("a\n[2026-11-26 17:50 CET]\nb"), "a\n[2026-11-26 17:50 CET]\nb");
 	assert.equal(startOf(stamped), "What time is it?");

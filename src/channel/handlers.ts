@@ -21,7 +21,7 @@ import { checkAccess } from "./access.ts";
 import { classifyMessage } from "./classify.ts";
 import { runCompact } from "./commands/compact.ts";
 import { ALIASES } from "./commands/list.ts";
-import { runModel, runPreset, runThink } from "./commands/model.ts";
+import { choiceNote, runModel, runPreset, runThink } from "./commands/model.ts";
 import { runNew } from "./commands/new.ts";
 import { runReasoning, runVerbose } from "./commands/settings.ts";
 import { runHelp } from "./commands/start-help.ts";
@@ -166,7 +166,8 @@ function detach(scope: Pick<MessageScope, "rt">, name: string, work: () => Promi
 async function admitContent(scope: MessageScope, text: string): Promise<boolean> {
 	const marker = forwardMarker(scope.message);
 	const body = (marker === undefined ? text : `${marker}\n${text}`) + (await replyContext(scope));
-	const content = withTimeStamp(body, new Date(scope.message.date * 1000));
+	const note = await choiceNote(scope.rt, scope.conversation);
+	const content = withTimeStamp(body, new Date(scope.message.date * 1000), { note });
 	const input = { chatId: scope.chatId, messageId: scope.messageId, requestId: scope.key, content };
 	const result = await admit(scope.conversation, scope.rt.deliver, input, BG, scope.updateId);
 	if (result === "admitted") scope.rt.log.info("message_admitted", { chat: scope.chatId, message: scope.messageId });
