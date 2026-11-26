@@ -177,3 +177,12 @@ test("P-row-tap: a tap rewrites only the row it is in, every other row stays byt
 		);
 	});
 });
+
+test("draftMarkdown: a stream cut anywhere in a button row never shows raw button tags", () => {
+	const row = `Update now?\n\n<tg-button-row>${button("Да, обновляй", "Да")}${button("Нет", "Нет")}</tg-button-row>`;
+	for (let end = 0; end <= row.length; end++) {
+		const draft = draftMarkdown(`Answer ${row.slice(0, end)}`);
+		assert.doesNotMatch(draft, /<\/?tg-button/, `cut at ${end}: ${draft}`);
+	}
+	assert.equal(draftMarkdown(`Answer ${row}`), "Answer Update now?\n\n[Да] [Нет]");
+});

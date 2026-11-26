@@ -210,9 +210,13 @@ function decodeEntities(text: string): string {
 	return text.replace(/&(#39|[a-z]+);/gi, (entity, name: string) => ENTITIES[name.toLowerCase()] ?? entity);
 }
 
+/** A button row or button that the stream has not closed yet: cut, so a draft never shows its raw tags. */
+const UNFINISHED_ROW = /<tg-button-row\b(?![\s\S]*<\/tg-button-row>)[\s\S]*$/i;
+const UNFINISHED_BUTTON = /<tg-button\b(?![\s\S]*<\/tg-button>)[\s\S]*$/i;
+
 /** A streaming frame as draft Markdown: buttons as labels, a trailing unfinished tag cut, `THINKING` when empty. */
 export function draftMarkdown(text: string): string {
-	const body = stripButtons(text)
+	const body = stripButtons(text.replace(UNFINISHED_ROW, "").replace(UNFINISHED_BUTTON, ""))
 		.replace(/<[^>]*$/, "")
 		.trim();
 	return body === "" ? THINKING : body;
