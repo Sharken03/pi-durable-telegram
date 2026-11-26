@@ -11,7 +11,8 @@ export const EDIT_INTERVAL_MS = 1000;
 /** A draft vanishes about 30 s after its last update; a quiet run (a long tool call) re-sends it this often. */
 export const DRAFT_REFRESH_MS = 20_000;
 
-export type PreviewFrame = { readonly text: string; readonly hint: string | undefined };
+/** `status`: the call lines shown above the streamed text (empty for none). */
+export type PreviewFrame = { readonly text: string; readonly status: string };
 
 export type PreviewOptions = {
 	readonly port: TelegramPort;
@@ -29,7 +30,7 @@ export type PreviewOptions = {
 	readonly intervalMs?: number;
 };
 
-/** Render the visible part of a streaming answer: its tail, with the fence it is inside reopened, plus a tool hint. */
+/** Render the visible part of a streaming answer: the call lines, then the text's tail with its open fence reopened. */
 export function renderPreview(frame: PreviewFrame): string {
 	let body = frame.text;
 	if (body.length > PREVIEW_CHARS) {
@@ -37,8 +38,7 @@ export function renderPreview(frame: PreviewFrame): string {
 		const fence = fenceStateAfter(body.slice(0, body.length - kept.length), undefined);
 		body = `${fence === undefined ? "" : `${fence.line}\n`}…${kept}`;
 	}
-	const hint = frame.hint === undefined ? "" : `\n\n⚙ ${frame.hint}`;
-	return `${body}${hint}`.trim();
+	return frame.status === "" ? body.trim() : `${frame.status}\n\n${body}`.trim();
 }
 
 /**
@@ -137,7 +137,9 @@ export class PreviewStreamer {
 			);
 			return;
 		}
-		const reply = this.#o.replyTo === undefined ? options : { ...options, replyTo: this.#o.replyTo };
+		// The preview is status: silent. The answer that replaces it is an edit, which never rings.
+		const first = { ...options, silent: true };
+		const reply = this.#o.replyTo === undefined ? first : { ...first, replyTo: this.#o.replyTo };
 		const sent = await withPlainFallback(
 			() => port.sendMessage(chatId, html, { ...reply, html: true }, signal),
 			() => port.sendMessage(chatId, text, reply, signal),

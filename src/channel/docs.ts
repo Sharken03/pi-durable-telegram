@@ -1,3 +1,4 @@
+import type { JsonValue } from "@earendil-works/chord";
 import { defineDoc } from "@earendil-works/pi-durable";
 
 /** Telegram chat id → durable conversation id; one conversation per allowed private chat. */
@@ -99,4 +100,55 @@ export function pushRing(keys: string[], key: string, size: number): boolean {
 	keys.push(key);
 	if (keys.length > size) keys.splice(0, keys.length - size);
 	return true;
+}
+
+/** How much of a run the chat shows: `off` only text, `on` call lines and a steps fold, `full` also arguments. */
+export type Verbose = "off" | "on" | "full";
+export const VERBOSE_LEVELS: readonly Verbose[] = ["off", "on", "full"];
+export type ChatView = { verbose: Verbose; reasoning: boolean };
+export const DEFAULT_VIEW: ChatView = { verbose: "on", reasoning: false };
+
+/** Per-chat output settings set by /verbose and /reasoning; absent fields take `DEFAULT_VIEW`. */
+export const ChatSettings = defineDoc<{ verbose?: Verbose; reasoning?: boolean }>({
+	kind: "tg.settings",
+	version: 1,
+	checkpointWhen: () => false,
+	scope: "conversation",
+	history: "latest",
+	fork: "initial",
+	initial: () => ({}),
+});
+
+/** The settings of a chat with the defaults filled in. */
+export function viewOf(settings: { verbose?: Verbose; reasoning?: boolean } | null | undefined): ChatView {
+	return {
+		verbose: settings?.verbose ?? DEFAULT_VIEW.verbose,
+		reasoning: settings?.reasoning ?? DEFAULT_VIEW.reasoning,
+	};
+}
+
+/** A failed request, by the message id of its error message: the Retry button sends `content` again. */
+export type RetryRecord = { content: JsonValue; replyTo?: number };
+
+export const Retries = defineDoc<{ messages: Record<string, RetryRecord>; order: number[] }>({
+	kind: "tg.retries",
+	version: 1,
+	checkpointWhen: () => false,
+	scope: "conversation",
+	history: "latest",
+	fork: "initial",
+	initial: () => ({ messages: {}, order: [] }),
+});
+
+export const RETRIES_RING_SIZE = 20;
+
+/** Keep the request behind error message `messageId`, dropping the oldest beyond `RETRIES_RING_SIZE`. */
+export function rememberRetry(
+	doc: { messages: Record<string, RetryRecord>; order: number[] },
+	messageId: number,
+	record: RetryRecord,
+): void {
+	if (!Object.hasOwn(doc.messages, String(messageId))) doc.order.push(messageId);
+	doc.messages[String(messageId)] = record;
+	while (doc.order.length > RETRIES_RING_SIZE) delete doc.messages[String(doc.order.shift())];
 }

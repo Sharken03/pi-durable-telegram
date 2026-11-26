@@ -2,7 +2,13 @@ import type { JsonValue } from "@earendil-works/chord";
 import type { LiveState } from "@earendil-works/pi-durable";
 import { toolHint } from "./hints.ts";
 
-export type LiveFrame = { readonly mine: boolean; readonly text: string; readonly hint: string | undefined };
+/** `calling`: the current generation has tool calls, so its text is text between calls, not the answer. */
+export type LiveFrame = {
+	readonly mine: boolean;
+	readonly text: string;
+	readonly hint: string | undefined;
+	readonly calling: boolean;
+};
 
 type Part = { type: string; text?: string; id?: string; name?: string; arguments?: JsonValue };
 
@@ -20,13 +26,19 @@ export class LiveTracker {
 
 	update(live: Readonly<LiveState> | null): LiveFrame {
 		const mine = live?.run?.inputs.includes(this.#submissionId as never) === true;
-		if (!mine || live === null) return { mine: false, text: "", hint: undefined };
+		if (!mine || live === null) return { mine: false, text: "", hint: undefined, calling: false };
 		const parts = (live.generation?.message?.content ?? []) as readonly Part[];
 		for (const part of parts) {
 			if (part.type === "toolCall" && part.id !== undefined) this.#args.set(part.id, part.arguments ?? null);
 		}
 		const text = parts.flatMap((part) => (part.type === "text" && part.text !== undefined ? [part.text] : [])).join("");
-		return { mine, text, hint: this.#hint(live) };
+		const calling = parts.some((part) => part.type === "toolCall");
+		return { mine, text, hint: this.#hint(live), calling };
+	}
+
+	/** The streamed arguments of call `callId`, if seen. */
+	args(callId: string): JsonValue | undefined {
+		return this.#args.get(callId);
 	}
 
 	#hint(live: Readonly<LiveState>): string | undefined {

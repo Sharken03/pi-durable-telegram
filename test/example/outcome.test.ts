@@ -14,7 +14,7 @@ test("unanswered text table", () => {
 	assert.match(unansweredText("model_error", "529 overloaded_error", model) ?? "", /overloaded/);
 	assert.equal(
 		unansweredText("model_error", "connection reset by peer", model),
-		"⚠ Model error: connection reset by peer.",
+		"❌ Model error: connection reset by peer.",
 	);
 	assert.match(unansweredText("no_model", undefined, model) ?? "", /anthropic\/claude-opus-5-5/);
 	assert.match(unansweredText("faulted", "boom", model) ?? "", /Internal error: boom/);
@@ -89,10 +89,10 @@ test("model errors: auth only on auth signals; overflow, limits and others keep 
 	assert.match(text(overflow), /too long for the model.*\/compact/);
 	const maxTokens =
 		'400 {"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: 200000 > 128000, which is the maximum allowed number of output tokens"}}';
-	assert.match(text(maxTokens), /^⚠ Model error: 400 .*max_tokens/);
+	assert.match(text(maxTokens), /^❌ Model error: 400 .*max_tokens/);
 	const server =
 		'500 {"type":"error","error":{"type":"api_error","message":"Internal server error"},"request_id":"req_011CX4031abc"}';
-	assert.match(text(server), /^⚠ Model error: 500 /);
+	assert.match(text(server), /^❌ Model error: 500 /);
 	assert.match(text('429 {"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}'), /rate-limited/);
 	for (const auth of [
 		'401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}',

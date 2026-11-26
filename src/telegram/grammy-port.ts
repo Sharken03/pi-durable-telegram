@@ -1,6 +1,6 @@
 import { Api, GrammyError, HttpError, InputFile } from "grammy";
 import { TelegramApiError, TelegramUnavailable, TelegramUnknown } from "./errors.ts";
-import type { BotCommandSpec, ChatAction, SendOptions, TelegramPort } from "./port.ts";
+import type { BotCommandSpec, ChatAction, DocumentOptions, SendOptions, TelegramPort } from "./port.ts";
 import { createRetryTransformer } from "./retry.ts";
 
 export type GrammyPortOptions = {
@@ -27,7 +27,8 @@ export function createGrammyPort(options: GrammyPortOptions): TelegramPort {
 		sendMessage: (chatId, text, o, signal) =>
 			o.rich === true
 				? guard("sendRichMessage", async () => {
-						const sent = await pick(o).sendRichMessage(chatId, { markdown: text }, replyExtra(o), gs(signal));
+						const extra = { ...replyExtra(o), ...silentExtra(o), ...markupExtra(o) };
+						const sent = await pick(o).sendRichMessage(chatId, { markdown: text }, extra, gs(signal));
 						return sent.message_id;
 					})
 				: guard(
@@ -37,13 +38,12 @@ export function createGrammyPort(options: GrammyPortOptions): TelegramPort {
 		editMessageText: (chatId, messageId, text, o, signal) =>
 			guard("editMessageText", async () => {
 				const content = o.rich === true ? { markdown: text } : text;
-				await pick(o).editMessageText(
-					chatId,
-					messageId,
-					content,
-					o.html === true ? { parse_mode: "HTML" } : {},
-					gs(signal),
-				);
+				const extra = { ...(o.html === true ? { parse_mode: "HTML" as const } : {}), ...markupExtra(o) };
+				await pick(o).editMessageText(chatId, messageId, content, extra, gs(signal));
+			}),
+		removeButtons: (chatId, messageId, signal) =>
+			guard("editMessageReplyMarkup", async () => {
+				await fast.editMessageReplyMarkup(chatId, messageId, { reply_markup: { inline_keyboard: [] } }, gs(signal));
 			}),
 		sendDraft: (chatId, draftId, markdown, signal) =>
 			guard("sendRichMessageDraft", async () => {
@@ -67,6 +67,12 @@ export function createGrammyPort(options: GrammyPortOptions): TelegramPort {
 				"sendDocument",
 				async () => (await api.sendDocument(chatId, new InputFile(path), captionExtra(caption), gs(signal))).message_id,
 			),
+		sendTextDocument: (chatId, fileName, text, o: DocumentOptions, signal) =>
+			guard("sendDocument", async () => {
+				const file = new InputFile(Buffer.from(text, "utf8"), fileName);
+				const extra = { ...replyExtra(o), ...silentExtra(o) };
+				return (await api.sendDocument(chatId, file, extra, gs(signal))).message_id;
+			}),
 		getFile: (fileId, signal) =>
 			guard("getFile", async () => {
 				const file = await api.getFile(fileId, gs(signal));
@@ -92,11 +98,23 @@ function sendExtra(options: SendOptions) {
 	return {
 		...(options.html === true ? { parse_mode: "HTML" as const } : {}),
 		...replyExtra(options),
+		...silentExtra(options),
+		...markupExtra(options),
 		link_preview_options: { is_disabled: true },
 	};
 }
 
-function replyExtra(options: SendOptions) {
+function silentExtra(options: { readonly silent?: boolean }) {
+	return options.silent === true ? { disable_notification: true } : {};
+}
+
+function markupExtra(options: SendOptions) {
+	if (options.buttons === undefined || options.buttons.length === 0) return {};
+	const rows = options.buttons.map((row) => row.map((each) => ({ text: each.text, callback_data: each.data })));
+	return { reply_markup: { inline_keyboard: rows } };
+}
+
+function replyExtra(options: { readonly replyTo?: number }) {
 	return options.replyTo === undefined
 		? {}
 		: { reply_parameters: { message_id: options.replyTo, allow_sending_without_reply: true } };

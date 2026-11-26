@@ -11,6 +11,7 @@ import type { PluginReport } from "../plugins/load.ts";
 import type { FatalHandler } from "../runtime/fatal.ts";
 import { createLogger, errorSummary, type Logger } from "../runtime/log.ts";
 import { packageVersion } from "../runtime/version.ts";
+import { contextLimit } from "../status/format-status.ts";
 import { DOWNLOAD_LIMIT_BYTES } from "../telegram/download.ts";
 import { telegramErrorSummary } from "../telegram/errors.ts";
 import { createGrammyPort } from "../telegram/grammy-port.ts";
@@ -119,6 +120,8 @@ export function createTelegramChannel(options: TelegramChannelOptions): Telegram
 		model: options.model,
 		onFatal,
 		rich: options.rich === true,
+		contextLimit: (provider, modelId) =>
+			contextLimit(options.models?.getModel(provider, modelId)?.contextWindow, options.contextCap),
 		...(options.previewIntervalMs === undefined ? {} : { previewIntervalMs: options.previewIntervalMs }),
 		...(options.editRetryDelaysMs === undefined ? {} : { editRetryDelaysMs: options.editRetryDelaysMs }),
 	};

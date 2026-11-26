@@ -1,6 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { TelegramApiError } from "../../src/telegram/errors.ts";
-import type { BotCommandSpec, ChatAction, SendOptions, TelegramPort } from "../../src/telegram/port.ts";
+import type {
+	BotCommandSpec,
+	ChatAction,
+	DocumentOptions,
+	InlineButton,
+	SendOptions,
+	TelegramPort,
+} from "../../src/telegram/port.ts";
 
 export type FakeMessage = {
 	id: number;
@@ -12,6 +19,12 @@ export type FakeMessage = {
 	kind: "text" | "photo" | "document";
 	path?: string;
 	caption?: string;
+	/** A document sent from memory: its file name and text. */
+	fileName?: string;
+	content?: string;
+	/** Inline keyboard of the message, as last sent or edited. */
+	buttons?: readonly (readonly InlineButton[])[];
+	silent?: boolean;
 };
 export type FakeCall = { method: string; chatId?: number; messageId?: number; text?: string; options?: SendOptions };
 type Hook = (call: FakeCall, signal: AbortSignal | undefined) => Promise<void> | void;
@@ -41,8 +54,9 @@ export class FakeTelegram implements TelegramPort {
 		for (const hook of [...this.#hooks]) await hook(call, signal);
 	}
 
+	/** The texts of the chat's messages; a rich answer's footer is left out, so tests can match the answer itself. */
 	textsIn(chatId: number): string[] {
-		return [...this.messages.values()].filter((m) => m.chatId === chatId).map((m) => m.text);
+		return [...this.messages.values()].filter((m) => m.chatId === chatId).map((m) => withoutFooter(m.text));
 	}
 
 	created(chatId: number): FakeMessage[] {
@@ -65,6 +79,8 @@ export class FakeTelegram implements TelegramPort {
 			...(options.rich === true ? { rich: true } : {}),
 			kind: "text",
 			...(options.replyTo === undefined ? {} : { replyTo: options.replyTo }),
+			...(options.buttons === undefined ? {} : { buttons: options.buttons }),
+			...(options.silent === true ? { silent: true } : {}),
 		});
 		return id;
 	}
@@ -81,11 +97,23 @@ export class FakeTelegram implements TelegramPort {
 		if (message === undefined || message.chatId !== chatId)
 			throw new TelegramApiError("editMessageText", 400, "Bad Request: message to edit not found");
 		checkHtml(text, options);
-		if (message.text === text)
+		if (message.text === text && sameButtons(message.buttons, options.buttons))
 			throw new TelegramApiError("editMessageText", 400, "Bad Request: message is not modified");
 		message.text = text;
 		message.html = options.html === true;
 		message.rich = options.rich === true;
+		if (options.buttons === undefined) delete message.buttons;
+		else message.buttons = options.buttons;
+	}
+
+	async removeButtons(chatId: number, messageId: number, signal?: AbortSignal): Promise<void> {
+		await this.#enter({ method: "removeButtons", chatId, messageId }, signal);
+		const message = this.messages.get(messageId);
+		if (message === undefined || message.chatId !== chatId)
+			throw new TelegramApiError("editMessageReplyMarkup", 400, "Bad Request: message to edit not found");
+		if (message.buttons === undefined)
+			throw new TelegramApiError("editMessageReplyMarkup", 400, "Bad Request: message is not modified");
+		delete message.buttons;
 	}
 
 	async sendDraft(chatId: number, draftId: number, markdown: string, signal?: AbortSignal): Promise<void> {
@@ -124,6 +152,34 @@ export class FakeTelegram implements TelegramPort {
 		return id;
 	}
 
+	async sendTextDocument(
+		chatId: number,
+		fileName: string,
+		text: string,
+		options: DocumentOptions,
+		signal?: AbortSignal,
+	): Promise<number> {
+		await this.#enter({ method: "sendTextDocument", chatId, text: fileName }, signal);
+		const id = this.#nextId++;
+		this.messages.set(id, {
+			id,
+			chatId,
+			text: "",
+			html: false,
+			kind: "document",
+			fileName,
+			content: text,
+			...(options.replyTo === undefined ? {} : { replyTo: options.replyTo }),
+			...(options.silent === true ? { silent: true } : {}),
+		});
+		return id;
+	}
+
+	/** Documents sent from memory in a chat, oldest first. */
+	documentsIn(chatId: number): FakeMessage[] {
+		return this.created(chatId).filter((m) => m.kind === "document" && m.fileName !== undefined);
+	}
+
 	async getFile(fileId: string, signal?: AbortSignal): Promise<{ path: string; size?: number }> {
 		await this.#enter({ method: "getFile", text: fileId }, signal);
 		const bytes = this.files.get(fileId);
@@ -147,6 +203,10 @@ export class FakeTelegram implements TelegramPort {
 	}
 }
 
+function sameButtons(a: FakeMessage["buttons"], b: SendOptions["buttons"]): boolean {
+	return JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
+}
+
 /** Reject unbalanced HTML the way Telegram does, so parse fallbacks can be exercised. */
 function checkHtml(text: string, options: SendOptions): void {
 	if (options.html !== true) return;
@@ -162,4 +222,9 @@ export function blockUntilAborted(signal: AbortSignal | undefined): Promise<neve
 		if (signal.aborted) fail();
 		signal.addEventListener("abort", fail, { once: true });
 	});
+}
+
+/** An answer without its footer line (`_faux-1 · 3% · 2s_`, in HTML `<i>…</i>`), which depends on timing. */
+export function withoutFooter(text: string): string {
+	return text.replace(/\n\n_faux-1(?: · [^\n]*)?_$|\n\n<i>faux-1(?: · [^\n<]*)?<\/i>$/, "");
 }

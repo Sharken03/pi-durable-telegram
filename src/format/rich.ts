@@ -153,6 +153,13 @@ export function stripButtons(markdown: string): string {
 		.replace(/[ \t]+$/gm, "");
 }
 
+/** Folds as plain text for the HTML fallback: the summary as a line, the body after it, no tags. */
+export function flattenFolds(markdown: string): string {
+	return markdown
+		.replace(/<details\b[^>]*>\s*<summary\b[^>]*>([\s\S]*?)<\/summary>/gi, (_m, summary: string) => summary.trim())
+		.replace(/<\/?(details|summary)\b[^>]*>/gi, "");
+}
+
 export function hasCallbackButtons(markdown: string): boolean {
 	return [...markdown.matchAll(BUTTON)].some((match) => CALLBACK.test(match[1] ?? ""));
 }
@@ -203,7 +210,11 @@ export function draftMarkdown(text: string): string {
 	return body === "" ? THINKING : body;
 }
 
-/** One line of a sent text for the model's context, collapsed and cut to `max` characters. */
+/**
+ * One line of a sent text for the model's context, collapsed and cut to `max` characters. Folds and a last italic
+ * line (the footer) are left out: they describe the run, not the message.
+ */
 export function contextLine(markdown: string, max: number): string {
-	return truncate(stripButtons(markdown).replace(/\s+/g, " ").trim(), max);
+	const message = markdown.replace(/<details\b[\s\S]*?<\/details>/gi, "").replace(/\n\n_[^\n]+_\s*$/, "");
+	return truncate(stripButtons(message).replace(/\s+/g, " ").trim(), max);
 }

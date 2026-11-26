@@ -7,10 +7,10 @@ import { TelegramApiError } from "../../src/telegram/errors.ts";
 import { sleep, waitFor } from "../helpers/env.ts";
 import { FakeTelegram } from "../helpers/fake-telegram.ts";
 
-test("preview render: tail with the open fence reopened, tool hint appended", () => {
-	assert.equal(renderPreview({ text: "abc", hint: "bash: ls" }), "abc\n\n⚙ bash: ls");
+test("preview render: call lines first, then the tail with the open fence reopened", () => {
+	assert.equal(renderPreview({ text: "abc", status: "⚙ `read: a.ts`" }), "⚙ `read: a.ts`\n\nabc");
 	const long = `\`\`\`ts\n${"x\n".repeat(3000)}`;
-	const out = renderPreview({ text: long, hint: undefined });
+	const out = renderPreview({ text: long, status: "" });
 	assert.ok(out.startsWith("```ts\n…"));
 	assert.ok(out.length < 3600);
 });
@@ -34,11 +34,11 @@ test("T-preview-cooldown: one message, throttled edits, 429 drops a frame and se
 		onCreated: async (id) => void created.push(id),
 		intervalMs: 30,
 	});
-	streamer.push({ text: "one", hint: undefined });
+	streamer.push({ text: "one", status: "" });
 	await waitFor(() => created.length === 1, { what: "preview created" });
-	streamer.push({ text: "two", hint: undefined });
+	streamer.push({ text: "two", status: "" });
 	await waitFor(() => throttled === 1, { what: "429" });
-	streamer.push({ text: "three", hint: undefined });
+	streamer.push({ text: "three", status: "" });
 	await sleep(400);
 	assert.equal(port.textsIn(5)[0], "one", "no edit during the cooldown");
 	await waitFor(() => port.textsIn(5)[0] === "three", { timeoutMs: 3000, what: "edit after cooldown" });
@@ -60,8 +60,8 @@ test("preview reuses an existing message and treats 'not modified' as success", 
 		onCreated: async () => assert.fail("must not create"),
 		intervalMs: 10,
 	});
-	streamer.push({ text: "old", hint: undefined });
-	streamer.push({ text: "new", hint: undefined });
+	streamer.push({ text: "old", status: "" });
+	streamer.push({ text: "new", status: "" });
 	await waitFor(() => port.textsIn(5)[0] === "new");
 	await streamer.close();
 	assert.equal(port.count("sendMessage"), 1);
@@ -83,10 +83,10 @@ test("draft: thinking first, then frames; a quiet run re-sends its draft before 
 		onCreated: async () => assert.fail("drafts create no message"),
 		intervalMs: 10,
 	});
-	streamer.push({ text: "", hint: undefined });
+	streamer.push({ text: "", status: "" });
 	t.mock.timers.tick(10);
 	await settle();
-	streamer.push({ text: "", hint: "bash: npm test" });
+	streamer.push({ text: "", status: "⚙ `read: a.ts`" });
 	t.mock.timers.tick(10);
 	await settle();
 	t.mock.timers.tick(DRAFT_REFRESH_MS);
@@ -98,8 +98,8 @@ test("draft: thinking first, then frames; a quiet run re-sends its draft before 
 		port.drafts.map((draft) => [draft.draftId, draft.markdown]),
 		[
 			[7, THINKING],
-			[7, "⚙ bash: npm test"],
-			[7, "⚙ bash: npm test"],
+			[7, "⚙ `read: a.ts`"],
+			[7, "⚙ `read: a.ts`"],
 		],
 	);
 	assert.equal(port.count("sendMessage"), 0);

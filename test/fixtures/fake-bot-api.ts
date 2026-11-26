@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Update } from "grammy/types";
+import { withoutFooter } from "../helpers/fake-telegram.ts";
 
 export type ApiCall = { method: string; body: Record<string, unknown> };
 export type ServerMessage = { id: number; chatId: number; text: string; replyTo?: number };
@@ -45,8 +46,9 @@ export class FakeBotApi {
 		return this.calls.filter((call) => call.method === method).length;
 	}
 
+	/** The texts of the chat's messages; a rich answer's footer is left out, as in `FakeTelegram.textsIn`. */
 	textsIn(chatId: number): string[] {
-		return [...this.messages.values()].filter((m) => m.chatId === chatId).map((m) => m.text);
+		return [...this.messages.values()].filter((m) => m.chatId === chatId).map((m) => withoutFooter(m.text));
 	}
 
 	async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {

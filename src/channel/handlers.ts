@@ -21,6 +21,7 @@ import { checkAccess } from "./access.ts";
 import { classifyMessage } from "./classify.ts";
 import { runCompact } from "./commands/compact.ts";
 import { runNew } from "./commands/new.ts";
+import { runReasoning, runVerbose } from "./commands/settings.ts";
 import { runHelp } from "./commands/start-help.ts";
 import { runStatus } from "./commands/status.ts";
 import { runStop } from "./commands/stop.ts";
@@ -118,6 +119,10 @@ async function runCommand(scope: MessageScope, name: string, args: string): Prom
 			return detach(scope, "stop", () => runStop(scope));
 		case "compact":
 			return detach(scope, "compact", () => runCompact(scope, args));
+		case "verbose":
+			return runVerbose(scope, args);
+		case "reasoning":
+			return runReasoning(scope, args);
 		default:
 			// Unknown commands go to the model as text: skills and prompts often use their own slash words.
 			await admitContent(scope, scope.message.text ?? `/${name}`);

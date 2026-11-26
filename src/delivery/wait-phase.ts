@@ -11,10 +11,10 @@ import {
 	type Tx,
 	type UserInput,
 } from "@earendil-works/pi-durable";
-import { DELIVERED_RING_SIZE, Delivered } from "../channel/docs.ts";
-import { LiveTracker } from "./live-frame.ts";
+import { ChatSettings, DELIVERED_RING_SIZE, Delivered, viewOf } from "../channel/docs.ts";
 import { trimDetail } from "./outcome.ts";
 import { PreviewStreamer } from "./preview.ts";
+import { RunTracker } from "./run-tracker.ts";
 import type { DeliverInput, DeliverState, DeliveryDeps, Outcome, SendState, WaitState } from "./types.ts";
 import { TypingPulse } from "./typing.ts";
 
@@ -72,11 +72,19 @@ async function streamUntilSettled(
 		onCreated: (id) =>
 			runtime.commit((_tx, current) => running({ ...waitOf(current), preview: { messageId: id } }), context),
 	});
-	const tracker = new LiveTracker(submission.id);
+	const view = viewOf(await runtime.snapshot(ChatSettings, runtime.conversationId, context));
+	const tracker = new RunTracker({
+		submissionId: submission.id,
+		reader: runtime,
+		context,
+		verbose: view.verbose,
+		rich: draft,
+		log: deps.log,
+	});
 	const watch = await runtime.watchDoc(LiveDoc, runtime.conversationId, context);
 	watch?.start(async (call) => {
 		if (call.kind !== "value" || call.retired) return;
-		const frame = tracker.update(call.value);
+		const frame = await tracker.update(call.value);
 		typing.set(frame.mine);
 		if (frame.mine) preview.push(frame);
 	});
@@ -105,7 +113,8 @@ export function terminal(): Next {
 async function decide(tx: Tx, current: Running, settled: SettledSubmissionRecord, runtime: Runtime): Promise<Next> {
 	const wait = waitOf(current);
 	const outcome = await outcomeOf(tx, settled, runtime.conversationId, current.id);
-	const next: SendState = { phase: "send", outcome, sent: 0, messageIds: [] };
+	const view = viewOf(await tx.doc(ChatSettings, runtime.conversationId));
+	const next: SendState = { phase: "send", outcome, sent: 0, messageIds: [], view, endedAt: runtime.now() };
 	if (wait.preview !== undefined) next.preview = wait.preview;
 	return running(next);
 }
@@ -123,7 +132,8 @@ async function outcomeOf(
 			: { kind: "unanswered", reason: settled.reason, detail };
 	}
 	if (settled.type !== "input") return { kind: "unanswered", reason: "not_an_input" };
-	return claimAnswer(tx, conversationId, settled.answer, taskId);
+	const outcome = await claimAnswer(tx, conversationId, settled.answer, taskId);
+	return outcome.kind === "answer" ? { ...outcome, from: Number(settled.entry) } : outcome;
 }
 
 /** Claim an answer entry for this task; an answer already claimed by another task is `shared`. */

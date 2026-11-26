@@ -1,5 +1,6 @@
 import type { JsonValue } from "@earendil-works/chord";
 import type { Harness, ModelRef } from "@earendil-works/pi-durable";
+import type { ChatView } from "../channel/docs.ts";
 import type { FatalHandler } from "../runtime/fatal.ts";
 import type { Logger } from "../runtime/log.ts";
 import type { TelegramPort } from "../telegram/port.ts";
@@ -16,8 +17,9 @@ export type DeliverInput = {
 
 export type Preview = { messageId: number };
 
+/** `from`: the user's entry, where the run's steps start (absent in states of earlier versions). */
 export type Outcome =
-	| { kind: "answer"; entryId: number }
+	| { kind: "answer"; entryId: number; from?: number }
 	| { kind: "unanswered"; reason: string; detail?: string }
 	| { kind: "shared"; entryId: number };
 
@@ -40,6 +42,10 @@ export type SendState = {
 	unknown?: boolean;
 	/** Telegram rejected the rich message at this chunk: the rest of the answer goes out as HTML. */
 	htmlFrom?: number;
+	/** The chat's output settings when the run ended, so a resend renders the same chunks. */
+	view?: ChatView;
+	/** When the run settled (ms): the footer's time ends here. */
+	endedAt?: number;
 };
 
 export type DeliverState = WaitState | SendState;
@@ -56,4 +62,6 @@ export type DeliveryDeps = {
 	readonly previewIntervalMs?: number;
 	/** Pauses between final preview edits during a Telegram outage (default `EDIT_RETRY_DELAYS_MS`). */
 	readonly editRetryDelaysMs?: readonly number[];
+	/** The context limit of a model (the cap or its window), for the answer's footer. */
+	readonly contextLimit?: (provider: string, modelId: string) => number | undefined;
 };

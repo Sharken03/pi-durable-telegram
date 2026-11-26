@@ -5,5 +5,7 @@ export const COMMANDS: readonly BotCommandSpec[] = [
 	{ command: "stop", description: "Stop the current run; queued messages continue" },
 	{ command: "compact", description: "Compact the context, optionally with instructions" },
 	{ command: "status", description: "Model, context, spend and queue" },
+	{ command: "verbose", description: "Show tool calls: off, on or full" },
+	{ command: "reasoning", description: "Show or hide the model's reasoning" },
 	{ command: "help", description: "What this bot does" },
 ];

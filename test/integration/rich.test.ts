@@ -7,7 +7,7 @@ import { stripButtons, THINKING } from "../../src/format/rich.ts";
 import { TelegramApiError } from "../../src/telegram/errors.ts";
 import { CHAT, newFaux, startTestAgent, type TestAgent, tempDir } from "../helpers/agent.ts";
 import { sleep, waitFor } from "../helpers/env.ts";
-import { blockUntilAborted, FakeTelegram } from "../helpers/fake-telegram.ts";
+import { blockUntilAborted, FakeTelegram, withoutFooter } from "../helpers/fake-telegram.ts";
 import { lastUserText, observe, untilAborted, words } from "../helpers/faux-steps.ts";
 import { callbackUpdate, mediaUpdate, stoppedUpdate, textUpdate } from "../helpers/updates.ts";
 
@@ -46,9 +46,10 @@ test("T-rich-answer: streamed as a native draft, delivered as one rich message t
 	);
 	assert.ok(port.drafts.every((draft) => !draft.markdown.includes("<tg-button") && draft.draftId > 0));
 	assert.deepEqual(
-		port.created(CHAT).map((m) => [m.text, m.rich, m.replyTo]),
+		port.created(CHAT).map((m) => [withoutFooter(m.text), m.rich, m.replyTo]),
 		[[answer, true, 10]],
 	);
+	assert.match(port.created(CHAT)[0]?.text ?? "", /<\/tg-button-row>\n\n_faux-1 · \d+% · \d+s_$/, "the footer ends the answer");
 	assert.equal(port.count("editMessageText"), 0, "no edited preview");
 });
 
@@ -64,7 +65,7 @@ test("T-rich-400: Telegram refuses the rich message, the answer goes out as HTML
 	await delivered(t);
 	const html = splitForTelegram(stripButtons(QUESTION)).map((chunk) => chunk.html);
 	assert.deepEqual(
-		port.created(CHAT).map((m) => [m.text, m.html, m.replyTo]),
+		port.created(CHAT).map((m) => [withoutFooter(m.text), m.html, m.replyTo]),
 		html.map((text, i) => [text, true, i === 0 ? 11 : undefined]),
 	);
 	assert.match(html[0] ?? "", /\[Да\] \[Нет\]$/);
@@ -86,7 +87,7 @@ test("T-draft-fallback: refused drafts switch the run to an edited preview; the 
 	assert.equal(port.count("sendDraft"), 1, "only the first draft was tried");
 	assert.ok(port.count("editMessageText") >= 2, "streamed by edits");
 	assert.deepEqual(
-		port.created(CHAT).map((m) => [m.text, m.rich, m.replyTo]),
+		port.created(CHAT).map((m) => [withoutFooter(m.text), m.rich, m.replyTo]),
 		[[answer, true, 12]],
 	);
 });
@@ -111,7 +112,7 @@ test("T-rich-crash: closed while the draft streams, reopened: the run resumes an
 	cleanups.push(() => second.close());
 	await delivered(second);
 	assert.deepEqual(
-		port.created(CHAT).map((m) => [m.text, m.rich, m.replyTo]),
+		port.created(CHAT).map((m) => [withoutFooter(m.text), m.rich, m.replyTo]),
 		[["Final answer after restart", true, 1]],
 	);
 	assert.equal(fast.state.callCount, 1, "the interrupted request was resent once");
@@ -144,7 +145,7 @@ test("T-rich-crash-final: closed while the final rich send is in flight; after r
 	cleanups.push(() => second.close());
 	await delivered(second);
 	assert.deepEqual(
-		port.created(CHAT).map((m) => [m.text, m.rich, m.replyTo]),
+		port.created(CHAT).map((m) => [withoutFooter(m.text), m.rich, m.replyTo]),
 		[["The answer", true, 3]],
 	);
 	assert.equal(idle.state.callCount, 0, "the model is not called again");
@@ -168,7 +169,7 @@ test("T-tap: a tap is answered, admitted once as the user's reply with its conte
 		seen[0],
 		"Да, обновляй\n\n(button under your message: «| a | b | |---|---| | 1 | 2 | Update now? [Да] [Нет]»)",
 	);
-	assert.equal(port.created(CHAT).find((m) => m.text === "Updating.")?.replyTo, question.id);
+	assert.equal(port.created(CHAT).find((m) => withoutFooter(m.text) === "Updating.")?.replyTo, question.id);
 	await waitFor(() => port.messages.get(question.id)?.text.includes("✅ Да"), { what: "choice marked" });
 	assert.match(port.messages.get(question.id)?.text ?? "", /<tg-button type="disabled">Нет<\/tg-button>/);
 	await t.agent.channel.handleUpdate(tap);

@@ -62,7 +62,7 @@ export function createCompactReportTask(deps: DeliveryDeps) {
 						);
 						await deps
 							.port()
-							.sendMessage(task.input.chatId, text, { replyTo: task.input.replyTo }, runtime.signal)
+							.sendMessage(task.input.chatId, text, { replyTo: task.input.replyTo, silent: true }, runtime.signal)
 							.catch((error: unknown) => {
 								if (classifyTelegramError(error).kind === "aborted") throw error;
 								deps.log.warn("compact_reply_failed", telegramErrorSummary(error));

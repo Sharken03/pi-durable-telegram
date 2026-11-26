@@ -44,22 +44,22 @@ export function unansweredText(
 		case "model_error":
 			return modelErrorText(detail ?? "", model.provider);
 		case "no_model":
-			return `⚠ Model ${model.provider}/${model.modelId} is not available (check PI_PROVIDER/PI_MODEL).`;
+			return `❌ Model ${model.provider}/${model.modelId} is not available (check PI_PROVIDER/PI_MODEL).`;
 		case "faulted":
-			return `⚠ Internal error: ${truncate(detail ?? "unknown", 200)}.`;
+			return `❌ Internal error: ${truncate(detail ?? "unknown", 200)}.`;
 		case "reset":
 			return "Context was reset; this request was dropped.";
 		default:
-			return `⚠ Request not answered (${reason}).`;
+			return `❌ Request not answered (${reason}).`;
 	}
 }
 
 function modelErrorText(detail: string, provider: string): string {
-	if (overflowPattern.test(detail)) return "⚠ The conversation is too long for the model: send /compact or /new.";
-	if (overloadPattern.test(detail)) return "⚠ Provider is overloaded or rate-limited, try again later.";
+	if (overflowPattern.test(detail)) return "❌ The conversation is too long for the model: send /compact or /new.";
+	if (overloadPattern.test(detail)) return "❌ Provider is overloaded or rate-limited, try again later.";
 	if (authPattern.test(detail))
-		return `⚠ Model auth failed: run \`pi-durable-telegram login ${provider}\` on the server.`;
-	return `⚠ Model error: ${truncate(detail === "" ? "unknown" : detail, 200)}.`;
+		return `❌ Model auth failed: run \`pi-durable-telegram login ${provider}\` on the server.`;
+	return `❌ Model error: ${truncate(detail === "" ? "unknown" : detail, 200)}.`;
 }
 
 /** Reasons after which queued messages stay in the inbox until something places them. */

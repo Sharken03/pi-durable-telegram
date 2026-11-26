@@ -54,13 +54,16 @@ export type CommandScope = Pick<MessageScope, "rt" | "conversation" | "chatId" |
 	readonly updateId?: number;
 };
 
-/** A direct reply to the message (or a plain message), sent at most once; failures are logged, never thrown. */
+/**
+ * A direct reply to the message (or a plain message), sent at most once and without a sound: replies are status, not
+ * answers. Failures are logged, never thrown.
+ */
 export async function reply(scope: CommandScope, text: string): Promise<void> {
 	try {
 		await scope.rt.port.sendMessage(
 			scope.chatId,
 			text,
-			scope.messageId === undefined ? {} : { replyTo: scope.messageId },
+			scope.messageId === undefined ? { silent: true } : { replyTo: scope.messageId, silent: true },
 		);
 	} catch (error) {
 		scope.rt.log.warn("reply_failed", { chat: scope.chatId, ...telegramErrorSummary(error) });
