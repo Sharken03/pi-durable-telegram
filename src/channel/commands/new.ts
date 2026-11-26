@@ -3,6 +3,7 @@ import { InboxDoc, LiveDoc } from "@earendil-works/pi-durable";
 import { truncate } from "../../format/escape.ts";
 import { recordKey } from "../intake.ts";
 import { type MessageScope, reply } from "../scope.ts";
+import { withoutTimeStamp } from "../time-stamp.ts";
 
 export const NEW_REPLY = "New context. Old history is kept.";
 
@@ -34,7 +35,7 @@ async function pending(scope: MessageScope): Promise<Dropped> {
 	return { running: live?.run !== undefined, queued };
 }
 
-/** The first words of a queued input; an input without text is named by what it is. */
+/** The first words of a queued input, without its time stamp; an input without text is named by what it is. */
 export function startOf(content: unknown): string {
 	const text =
 		typeof content === "string"
@@ -42,7 +43,7 @@ export function startOf(content: unknown): string {
 			: Array.isArray(content)
 				? content.flatMap((part) => (part?.type === "text" ? [String(part.text)] : [])).join(" ")
 				: "";
-	const flat = text.replace(/\s+/g, " ").trim();
+	const flat = withoutTimeStamp(text).replace(/\s+/g, " ").trim();
 	return flat === "" ? "[attachment]" : truncate(flat, START_LENGTH);
 }
 

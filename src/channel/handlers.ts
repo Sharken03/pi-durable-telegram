@@ -29,6 +29,7 @@ import { admit, type DuplicateReason, knownAs } from "./intake.ts";
 import { forwardMarker } from "./provenance.ts";
 import { type ChannelRuntime, type MessageScope, reply } from "./scope.ts";
 import { handleTap } from "./tap.ts";
+import { withTimeStamp } from "./time-stamp.ts";
 
 const MB = 1024 * 1024;
 
@@ -146,10 +147,11 @@ function detach(scope: Pick<MessageScope, "rt">, name: string, work: () => Promi
 	);
 }
 
-/** Admit the message for a model run; true when this call admitted it (false: a duplicate). */
+/** Admit the message for a model run, with its send time first; true when this call admitted it (false: a duplicate). */
 async function admitContent(scope: MessageScope, text: string): Promise<boolean> {
 	const marker = forwardMarker(scope.message);
-	const content = (marker === undefined ? text : `${marker}\n${text}`) + (await replyContext(scope));
+	const body = (marker === undefined ? text : `${marker}\n${text}`) + (await replyContext(scope));
+	const content = withTimeStamp(body, new Date(scope.message.date * 1000));
 	const input = { chatId: scope.chatId, messageId: scope.messageId, requestId: scope.key, content };
 	const result = await admit(scope.conversation, scope.rt.deliver, input, BG, scope.updateId);
 	if (result === "admitted") scope.rt.log.info("message_admitted", { chat: scope.chatId, message: scope.messageId });

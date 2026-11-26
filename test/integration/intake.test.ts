@@ -8,15 +8,24 @@ import { NEW_REPLY } from "../../src/channel/commands/new.ts";
 import { ConversationDirectory } from "../../src/channel/conversations.ts";
 import { ChatMap, Intake } from "../../src/channel/docs.ts";
 import { handleUpdate } from "../../src/channel/handlers.ts";
+import { timeStamp } from "../../src/channel/time-stamp.ts";
 import type { ChannelRuntime } from "../../src/channel/scope.ts";
 import { type Stt, SttError } from "../../src/media/stt.ts";
 import { silentLogger } from "../../src/runtime/log.ts";
 import { CHAT, newFaux, startTestAgent, type TestAgent, tempDir } from "../helpers/agent.ts";
 import { sleep, waitFor } from "../helpers/env.ts";
 import { FakeTelegram } from "../helpers/fake-telegram.ts";
-import { lastUserText, observe } from "../helpers/faux-steps.ts";
+import { lastUserText, lastUserTextRaw, observe } from "../helpers/faux-steps.ts";
 import { pngBytes } from "../helpers/images.ts";
-import { DATE, documentUpdate, mediaUpdate, photoUpdate, textUpdate, voiceUpdate } from "../helpers/updates.ts";
+import {
+	callbackUpdate,
+	DATE,
+	documentUpdate,
+	mediaUpdate,
+	photoUpdate,
+	textUpdate,
+	voiceUpdate,
+} from "../helpers/updates.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -328,4 +337,25 @@ test("forwarded: third-party text reaches the model marked as such; a forwarded 
 	await waitFor(() => port.textsIn(CHAT).includes("noted again"));
 	assert.match(seen[1] ?? "", /^\[forwarded from hidden user "X"; .*\]\n\/new$/);
 	assert.ok(!port.textsIn(CHAT).includes(NEW_REPLY), "the forwarded /new did not reset the context");
+});
+
+test("time stamp: a message and a tap reach the model with the local time first", async () => {
+	const faux = newFaux();
+	const seen: string[] = [];
+	const record = (answer: string) =>
+		observe((messages) => {
+			seen.push(lastUserTextRaw(messages));
+		}, fauxAssistantMessage(answer));
+	faux.setResponses([record("it is late"), record("tapped")]);
+	const { t, port } = await setup(faux);
+	const sent = Date.UTC(2026, 10, 26, 16, 50) / 1000;
+	await t.agent.channel.handleUpdate(textUpdate(CHAT, 50, "What time is it?", { date: sent }));
+	await waitFor(() => port.textsIn(CHAT).includes("it is late"));
+	assert.equal(seen[0], `${timeStamp(new Date(sent * 1000))}\nWhat time is it?`);
+	const before = Date.now();
+	await t.agent.channel.handleUpdate(callbackUpdate(CHAT, 51, "Yes"));
+	await waitFor(() => port.textsIn(CHAT).includes("tapped"));
+	const [head, rest] = (seen[1] ?? "").split("\n");
+	assert.ok([timeStamp(new Date(before)), timeStamp(new Date())].includes(head ?? ""), seen[1]);
+	assert.equal(rest, "Yes");
 });

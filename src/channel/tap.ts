@@ -6,14 +6,15 @@ import { telegramErrorSummary } from "../telegram/errors.ts";
 import { Buttons, rememberButtons } from "./docs.ts";
 import { admit } from "./intake.ts";
 import type { ChannelRuntime } from "./scope.ts";
+import { withTimeStamp } from "./time-stamp.ts";
 
 const CONTEXT_CHARS = 1500;
 
 type Tap = { chatId: number; messageId: number; sent: string; data: string };
 
 /**
- * A tap on an answer's button is the user's next message: the button's data and a line naming the message it was
- * under. It is admitted once per callback query, so a redelivered tap is a duplicate; then the message shows the
+ * A tap on an answer's button is the user's next message: the time of the tap, the button's data and a line naming
+ * the message it was under. It is admitted once per callback query, so a redelivered tap is a duplicate; then the message shows the
  * choice. Buttons of any old message work; without the sent Markdown the choice is just not marked.
  */
 export async function handleTap(rt: ChannelRuntime, query: CallbackQuery): Promise<void> {
@@ -27,7 +28,8 @@ export async function handleTap(rt: ChannelRuntime, query: CallbackQuery): Promi
 	const conversation = await rt.directory.get(chatId, BG);
 	const sent = (await rt.harness.snapshot(Buttons, conversation.id, BG))?.messages[String(messageId)];
 	const context = contextLine(sent ?? ("text" in message ? (message.text ?? "") : ""), CONTEXT_CHARS);
-	const content = context === "" ? query.data : `${query.data}\n\n(button under your message: «${context}»)`;
+	const body = context === "" ? query.data : `${query.data}\n\n(button under your message: «${context}»)`;
+	const content = withTimeStamp(body, new Date());
 	const input = { chatId, messageId, requestId: `tg:${chatId}:cq:${query.id}`, content };
 	const result = await admit(conversation, rt.deliver, input, BG);
 	rt.log.info(result === "admitted" ? "tap_admitted" : "update_duplicate", { chat: chatId, message: messageId });

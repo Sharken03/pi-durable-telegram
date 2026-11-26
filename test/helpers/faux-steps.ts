@@ -5,6 +5,7 @@ import {
 	fauxToolCall,
 	type Message,
 } from "@earendil-works/pi-ai";
+import { withoutTimeStamp } from "../../src/channel/time-stamp.ts";
 
 export function gate(): { promise: Promise<void>; open(): void } {
 	let open = () => {};
@@ -49,7 +50,14 @@ export function textOf(message: { content: string | readonly { type: string; tex
 		.join("");
 }
 
+/** The text of the last user message, without the time stamp line the channel puts first. */
 export function lastUserText(messages: readonly Message[]): string {
+	const last = messages.findLast((message) => message.role === "user");
+	return last === undefined ? "" : withoutTimeStamp(textOf(last as never));
+}
+
+/** The text of the last user message as the model gets it. */
+export function lastUserTextRaw(messages: readonly Message[]): string {
 	const last = messages.findLast((message) => message.role === "user");
 	return last === undefined ? "" : textOf(last as never);
 }
