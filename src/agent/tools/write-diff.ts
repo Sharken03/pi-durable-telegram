@@ -1,5 +1,5 @@
-import type { Context } from "@earendil-works/chord";
-import type { ToolExecutionApi, ToolRegistration } from "@earendil-works/pi-durable";
+import type { Context, JsonValue } from "@earendil-works/chord";
+import type { ToolExecutionApi, ToolExecutionResult, ToolRegistration } from "@earendil-works/pi-durable";
 import { createWriteTool } from "@earendil-works/pi-durable/tools";
 
 /** An older file larger than this is not read for a diff: the result then has no patch. */
@@ -14,14 +14,18 @@ export function createDiffWriteTool(): ToolRegistration {
 	const write = createWriteTool() as unknown as ToolRegistration;
 	return {
 		...write,
-		execute: async (args, api, context) => {
+		execute: async (args, api, context): Promise<ToolExecutionResult> => {
 			const { path, content } = args as { path: unknown; content: unknown };
 			const before = typeof path === "string" ? await readBefore(api, path, context) : undefined;
 			const result = await write.execute(args, api, context);
 			if (before === undefined || result.isError === true || typeof content !== "string") return result;
-			if (before.created) return { ...result, details: { created: true, lines: splitLines(content).length } };
-			const patch = linePatch(String(path), before.text, content);
-			return patch === undefined ? result : { ...result, details: { patch } };
+			const patch = before.created ? undefined : linePatch(String(path), before.text, content);
+			const details: JsonValue | undefined = before.created
+				? { created: true, lines: splitLines(content).length }
+				: patch === undefined
+					? undefined
+					: { patch };
+			return details === undefined ? result : { ...result, details };
 		},
 	};
 }
