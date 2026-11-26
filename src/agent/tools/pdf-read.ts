@@ -70,8 +70,13 @@ export type PdfDeps = {
 	readonly cache: FileCache;
 	/** Largest image file the model takes; a larger PNG render is made again as JPEG. */
 	readonly maxImageBytes: number;
-	/** Whether scanned pages are rendered (the model can see images). */
-	readonly render: boolean;
+	/**
+	 * What happens to a page without text: `view` renders it for the model to see, `describe` renders it for
+	 * `describe`, `none` only names it (the model cannot see images and no vision model is set).
+	 */
+	readonly scans: "view" | "describe" | "none";
+	/** The text of a rendered page from a vision model, for `scans: "describe"`. */
+	readonly describe?: (page: RenderedPage) => Promise<string>;
 	readonly signal?: AbortSignal;
 };
 
@@ -87,29 +92,42 @@ export async function readPdf(source: SourceId, pages: string | undefined, deps:
 	if (typeof range === "string") return range;
 	const args = ["-f", String(range.first), "-l", String(range.last), "-enc", "UTF-8", "-eol", "unix", source.path, "-"];
 	const pageTexts = (await pdfText(deps, "pdftotext", args, TEXT_OUTPUT_BYTES)).split("\f");
-	const lines = [summary(source.path, info, range)];
+	const out: Output = { lines: [summary(source.path, info, range)], budget: FULL_BUDGET };
 	const renders: RenderedPage[] = [];
-	let budget = { chars: MAX_PDF_TEXT_CHARS, lines: MAX_PDF_TEXT_LINES };
 	for (let page = range.first; page <= range.last; page += 1) {
-		const text = (pageTexts[page - range.first] ?? "").trim();
+		let text = (pageTexts[page - range.first] ?? "").trim();
 		if (visibleChars(text) < SCAN_CHARS) {
-			lines.push("", `--- Page ${page}: ${await scanNote(page, source, info, deps, renders)} ---`);
-			if (text !== "") lines.push(text);
-			continue;
+			const count = renders.length;
+			out.lines.push("", `--- Page ${page}: ${await scanNote(page, source, info, deps, renders)} ---`);
+			const rendered = renders[count];
+			if (rendered !== undefined && deps.scans === "describe" && deps.describe !== undefined) {
+				text = await deps.describe(rendered);
+			}
+		} else {
+			out.lines.push("", `--- Page ${page} ---`);
 		}
-		const cut = fit(text, budget);
-		lines.push("", `--- Page ${page} ---`, cut.text);
-		budget = cut.left;
-		if (cut.cut) {
+		if (!append(out, text)) {
 			const limit = `${MAX_PDF_TEXT_CHARS}-character limit`;
-			lines.push("", `[Text stops in page ${page} at the ${limit}. ${next(page, info)}]`);
-			return { text: lines.join("\n"), renders };
+			out.lines.push("", `[Text stops in page ${page} at the ${limit}. ${next(page, info)}]`);
+			return { text: out.lines.join("\n"), renders };
 		}
 	}
 	if (range.last < info.pages) {
-		lines.push("", `[Pages ${range.last + 1}-${info.pages} are not shown. ${next(range.last + 1, info)}]`);
+		out.lines.push("", `[Pages ${range.last + 1}-${info.pages} are not shown. ${next(range.last + 1, info)}]`);
 	}
-	return { text: lines.join("\n"), renders };
+	return { text: out.lines.join("\n"), renders };
+}
+
+type Output = { readonly lines: string[]; budget: Budget };
+const FULL_BUDGET: Budget = { chars: MAX_PDF_TEXT_CHARS, lines: MAX_PDF_TEXT_LINES };
+
+/** Add `text` within the budget; false when it had to be cut. */
+function append(out: Output, text: string): boolean {
+	if (text === "") return true;
+	const cut = fit(text, out.budget);
+	out.lines.push(cut.text);
+	out.budget = cut.left;
+	return !cut.cut;
 }
 
 function summary(path: string, info: PdfInfo, range: PageRange): string {
@@ -147,7 +165,7 @@ function fit(text: string, budget: Budget): { text: string; cut: boolean; left: 
 	return { text: kept, cut: true, left: { chars: 0, lines: 0 } };
 }
 
-/** The header note of a page without text, rendering it when the model can see it and the render limit allows. */
+/** The header note of a page without text, rendering it when `deps.scans` asks for it and the render limit allows. */
 async function scanNote(
 	page: number,
 	source: SourceId,
@@ -156,13 +174,15 @@ async function scanNote(
 	renders: RenderedPage[],
 ): Promise<string> {
 	const scan = "no text layer (a scan or a picture)";
-	if (!deps.render) return `${scan}; this model cannot view images`;
+	if (deps.scans === "none") return `${scan}; this model cannot view images`;
 	if (renders.length >= MAX_RENDERED_PAGES) {
 		return `${scan}; not rendered, at most ${MAX_RENDERED_PAGES} pages per call are. Read it with pages: "${page}"`;
 	}
 	try {
 		renders.push(await renderPage(page, source, info, deps));
-		return `${scan}; rendered as image ${renders.length} of this result`;
+		return deps.scans === "view"
+			? `${scan}; rendered as image ${renders.length} of this result`
+			: `${scan}; rendered for a vision model, which reads it below`;
 	} catch (error) {
 		if (!(error instanceof ProgramError)) throw error;
 		return `${scan}; rendering failed: ${error.message}`;

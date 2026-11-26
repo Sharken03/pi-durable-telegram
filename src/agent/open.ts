@@ -20,6 +20,7 @@ import { createEmptyAnswerExtension } from "./empty-answer.ts";
 import { createAgentModels, resolveModel, StartupError } from "./models.ts";
 import { createPromptExtension } from "./prompt.ts";
 import { createSettings } from "./settings.ts";
+import { createVisionFallback } from "./tools/vision.ts";
 import { createWorkspaceTools } from "./tools/workspace-tools.ts";
 
 export type Agent = {
@@ -87,7 +88,8 @@ export async function openAgent(config: Config, deps: OpenAgentDeps = {}): Promi
 	});
 	const registry = createRegistry();
 	const cacheDir = join(config.dataDir, CACHE_DIR);
-	registry.install(createWorkspaceTools({ cacheDir, ...optional({ programPath: deps.programPath }) }));
+	const vision = config.visionModel === undefined ? undefined : createVisionFallback(config.visionModel, models);
+	registry.install(createWorkspaceTools({ cacheDir, ...optional({ programPath: deps.programPath, vision }) }));
 	registry.install(
 		createPromptExtension({ instructionsPath: config.instructionsPath, rich: config.telegramRich === "auto" }),
 	);

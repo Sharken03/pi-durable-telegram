@@ -84,6 +84,13 @@ test("config examples", () => {
 	assert.deepEqual(problemsOf({ ...base, PI_PROVIDER: "Bad Id" }), ["PI_PROVIDER"]);
 	assert.deepEqual(problemsOf({ ...base, PI_CONTEXT_CAP: "10" }), ["PI_CONTEXT_CAP"]);
 	assert.deepEqual(problemsOf({ ...base, TELEGRAM_API_ROOT: "ftp://x" }), ["TELEGRAM_API_ROOT"]);
+	assert.deepEqual(parseConfig(base, defaults).visionModel, { provider: "deepseek", modelId: "deepseek-flash" });
+	assert.equal(parseConfig({ ...base, PI_VISION_MODEL: "off" }, defaults).visionModel, undefined);
+	const routed = parseConfig({ ...base, PI_VISION_MODEL: "openrouter/qwen/qwen3-vl" }, defaults).visionModel;
+	assert.deepEqual(routed, { provider: "openrouter", modelId: "qwen/qwen3-vl" });
+	for (const bad of ["deepseek", "/x", "deepseek/", "Bad/x"]) {
+		assert.deepEqual(problemsOf({ ...base, PI_VISION_MODEL: bad }), ["PI_VISION_MODEL"], bad);
+	}
 	const custom = parseConfig(
 		{
 			...base,

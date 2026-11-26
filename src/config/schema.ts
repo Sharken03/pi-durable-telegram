@@ -22,6 +22,8 @@ export type Config = {
 	readonly contextCap: number | undefined;
 	/** `PI_PLUGINS`: built-in names, paths or npm package names, in load order. */
 	readonly plugins: readonly string[];
+	/** `PI_VISION_MODEL`: describes images for a main model without image input; undefined when `off`. */
+	readonly visionModel: { readonly provider: string; readonly modelId: string } | undefined;
 };
 
 export type ConfigProblem = { readonly variable: string; readonly message: string };
@@ -58,6 +60,7 @@ const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 export const DEFAULT_PROVIDER = "anthropic";
 export const DEFAULT_MODEL = "claude-opus-5-5";
 export const DEFAULT_THINKING: ModelThinkingLevel = "high";
+export const DEFAULT_VISION_MODEL = "deepseek/deepseek-flash";
 
 type Collector = { problems: ConfigProblem[]; add(variable: string, message: string): void };
 
@@ -84,6 +87,7 @@ export function parseConfig(env: Env, defaults: ConfigDefaults = { cwd: process.
 	const logLevel = parseEnum("PI_LOG_LEVEL", env.PI_LOG_LEVEL, LOG_LEVELS, "info", out);
 	const contextCap = parseContextCap(env.PI_CONTEXT_CAP, out);
 	const plugins = parseList(env.PI_PLUGINS);
+	const visionModel = parseVisionModel(env.PI_VISION_MODEL, out);
 	if (out.problems.length > 0) throw new ConfigError(out.problems);
 	return {
 		botToken,
@@ -101,6 +105,7 @@ export function parseConfig(env: Env, defaults: ConfigDefaults = { cwd: process.
 		logLevel,
 		contextCap,
 		plugins,
+		visionModel,
 	};
 }
 
@@ -219,4 +224,18 @@ function parseContextCap(value: string | undefined, out: Collector): number | un
 	if (Number.isSafeInteger(cap) && cap >= 1000) return cap;
 	out.add("PI_CONTEXT_CAP", "must be a whole number of tokens, at least 1000");
 	return undefined;
+}
+
+/** `provider/model`, or `off` for none; the first slash splits, so a model id may hold more slashes. */
+function parseVisionModel(value: string | undefined, out: Collector): Config["visionModel"] {
+	const raw = nonEmpty(value) ?? DEFAULT_VISION_MODEL;
+	if (raw === "off") return undefined;
+	const slash = raw.indexOf("/");
+	const provider = raw.slice(0, slash);
+	const modelId = raw.slice(slash + 1).trim();
+	if (slash < 1 || modelId === "" || !/^[a-z0-9][a-z0-9-]*$/.test(provider)) {
+		out.add("PI_VISION_MODEL", "must be provider/model, e.g. deepseek/deepseek-flash, or off");
+		return undefined;
+	}
+	return { provider, modelId };
 }

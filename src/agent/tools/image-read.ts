@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import type { Context, JsonValue } from "@earendil-works/chord";
-import type { Api, ImageContent, Message, Model, Models, TextContent } from "@earendil-works/pi-ai";
+import type { Api, ImageContent, Message, Model, Models, TextContent, Usage } from "@earendil-works/pi-ai";
 import {
 	AgentDoc,
 	GenerationTask,
@@ -16,17 +16,20 @@ import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import { ProgramError, type ProgramPath } from "../../media/programs.ts";
 import { isPdf } from "../../media/sniff.ts";
 import type { FileCache, SourceId } from "./file-cache.ts";
-import { type ImageMime, type ImageProbe, probeImage } from "./image-probe.ts";
-import { MAX_PAGES_PER_READ, readPdf } from "./pdf-read.ts";
+import { type ImageMime, type ImageProbe, maxImageBytes, probeImage } from "./image-probe.ts";
+import { MAX_PAGES_PER_READ, type RenderedPage, readPdf } from "./pdf-read.ts";
+import { addUsage, type Description, type VisionFallback, type VisionImage } from "./vision.ts";
 
 const MAX_DIMENSION = 8000;
-const FALLBACK_MAX_BYTES = 3_932_160;
 const HEADER_BYTES = 64 * 1024;
 /** Images re-attached per request; older ones are replaced by a note to keep requests small. */
 export const IMAGES_PER_REQUEST = 4;
 
-/** One image a `read` result shows: the request hook attaches the file at `path` for each request. */
-export type ImageRef = { readonly path: string; readonly mime: ImageMime };
+/**
+ * One image a `read` result shows: the request hook attaches the file at `path` for each request. `described`: the
+ * result text already has a vision model's description, so a model without image input needs no note.
+ */
+export type ImageRef = { readonly path: string; readonly mime: ImageMime; readonly described?: true };
 export type ReadDetails = { readonly images: readonly ImageRef[] };
 
 export type ReadToolOptions = {
@@ -34,6 +37,8 @@ export type ReadToolOptions = {
 	readonly programs: ProgramPath;
 	/** Rendered pages live here, so the request hook can attach them later. */
 	readonly cache: FileCache;
+	/** Describes images when the conversation's model has no image input; none: such a model gets a note. */
+	readonly vision?: VisionFallback;
 };
 
 /** The stock `read` parameters plus `pages` for PDF files. */
@@ -50,12 +55,6 @@ const readParameters = obj(
 );
 
 type ReadArgs = { path: string; pages?: unknown };
-
-/** Largest raw image a model accepts: 3/4 of its base64 limit, else 3.75 MB. */
-export function maxImageBytes(model: Model<Api> | undefined): number {
-	const base64 = model?.inputLimits?.images?.resize?.maxBytes;
-	return base64 === undefined ? FALLBACK_MAX_BYTES : Math.floor((base64 * 3) / 4);
-}
 
 /** A model that is unknown counts as one that can view images. */
 function canView(model: Model<Api> | undefined): boolean {
@@ -137,55 +136,95 @@ async function readSpecial(
 	context: Context,
 	options: ReadToolOptions,
 ): Promise<ToolExecutionResult | undefined> {
-	if (probeImage(file.header) !== undefined) return readImage(file, api, context);
-	if (isPdf(file.header)) return readPdfFile(file, input.pages, api, context, options);
+	const call: Call = { api, context, options, model: await currentModel(api, context) };
+	if (probeImage(file.header) !== undefined) return readImage(file, call);
+	if (isPdf(file.header)) return readPdfFile(file, input.pages, call);
 	return undefined;
 }
+
+/** What one `read` call works with: the conversation's model is looked up once. */
+type Call = {
+	readonly api: ToolExecutionApi;
+	readonly context: Context;
+	readonly options: ReadToolOptions;
+	readonly model: Model<Api> | undefined;
+};
 
 async function currentModel(api: ToolExecutionApi, context: Context): Promise<Model<Api> | undefined> {
 	return modelOf(api.models, (await api.agent(context)).model);
 }
 
-async function readImage(file: OpenedFile, api: ToolExecutionApi, context: Context): Promise<ToolExecutionResult> {
-	const model = await currentModel(api, context);
-	const check = checkImage(file.header, file.size, maxImageBytes(model));
-	if (!check.ok) return failure(check.reason);
-	const { width, height, mime } = check.probe;
-	const size = `${width ?? "?"}x${height ?? "?"}, ${megabytes(file.size)} MB`;
-	return success(`Image ${file.path} (${size}) is attached for viewing.`, [{ path: file.path, mime }]);
+/** The vision fallback when the model cannot view images and one is set; undefined otherwise. */
+function fallbackFor(call: Call): VisionFallback | undefined {
+	return canView(call.model) ? undefined : call.options.vision;
 }
 
-async function readPdfFile(
-	file: OpenedFile,
-	pages: unknown,
-	api: ToolExecutionApi,
+async function readImage(file: OpenedFile, call: Call): Promise<ToolExecutionResult> {
+	const check = checkImage(file.header, file.size, maxImageBytes(call.model));
+	if (!check.ok) return failure(check.reason);
+	const { width, height, mime } = check.probe;
+	const head = `Image ${file.path} (${width ?? "?"}x${height ?? "?"}, ${megabytes(file.size)} MB)`;
+	const image: ImageRef = { path: file.path, mime };
+	const vision = fallbackFor(call);
+	if (vision === undefined) return success(`${head} is attached for viewing.`, [image]);
+	const described = await describeFile(vision, image, "picture", call.context);
+	if (!described.ok) {
+		const why = `This model cannot view images, and the vision model ${vision.label} could not describe it`;
+		return success(`${head}. ${why}: ${described.reason}.`, [image]);
+	}
+	const intro = `This model cannot view images; the vision model ${vision.label} describes it:`;
+	return success(`${head}. ${intro}\n\n${described.text}`, [{ ...image, described: true }], described.usage);
+}
+
+async function describeFile(
+	vision: VisionFallback,
+	image: ImageRef,
+	kind: VisionImage["kind"],
 	context: Context,
-	options: ReadToolOptions,
-): Promise<ToolExecutionResult> {
-	const model = await currentModel(api, context);
+): Promise<Description> {
+	const data = await readFile(image.path).catch(() => undefined);
+	if (data === undefined) return { ok: false, reason: "the file could not be read" };
+	return vision.describe({ data, mime: image.mime, kind }, context.abortSignal);
+}
+
+async function readPdfFile(file: OpenedFile, pages: unknown, call: Call): Promise<ToolExecutionResult> {
+	const vision = fallbackFor(call);
+	let usage: Usage | undefined;
+	const describe = async (page: RenderedPage): Promise<string> => {
+		if (vision === undefined) throw new Error("describe without a vision model");
+		const described = await describeFile(vision, page, "page", call.context);
+		if (!described.ok) return `[The vision model ${vision.label} could not read this page: ${described.reason}.]`;
+		usage = addUsage(usage, described.usage);
+		return `[Read by the vision model ${vision.label}:]\n${described.text}`;
+	};
 	try {
 		const result = await readPdf(file, typeof pages === "string" ? pages : undefined, {
-			programs: options.programs,
-			cache: options.cache,
-			maxImageBytes: maxImageBytes(model),
-			render: canView(model),
-			...(context.abortSignal === undefined ? {} : { signal: context.abortSignal }),
+			programs: call.options.programs,
+			cache: call.options.cache,
+			maxImageBytes: maxImageBytes(call.model),
+			scans: canView(call.model) ? "view" : vision === undefined ? "none" : "describe",
+			describe,
+			...(call.context.abortSignal === undefined ? {} : { signal: call.context.abortSignal }),
 		});
 		if (typeof result === "string") return failure(`Cannot read the PDF ${file.path}: ${result}.`);
-		return success(
-			result.text,
-			result.renders.map((page) => ({ path: page.path, mime: page.mime })),
-		);
+		const described = vision === undefined ? {} : { described: true as const };
+		const images = result.renders.map((page) => ({ path: page.path, mime: page.mime, ...described }));
+		return success(result.text, images, usage);
 	} catch (error) {
 		if (error instanceof ProgramError) return failure(`Cannot read the PDF ${file.path}: ${error.message}`);
 		throw error;
 	}
 }
 
-/** A result for the model; programs that call `read` get the same text. */
-function success(value: string, images: readonly ImageRef[]): ToolExecutionResult {
+/** A result for the model; programs that call `read` get the same text. `usage`: a vision model's spend. */
+function success(value: string, images: readonly ImageRef[], usage?: Usage): ToolExecutionResult {
 	const details: ReadDetails = { images };
-	return { output: [text(value)], structuredOutput: value, details: details as unknown as JsonValue };
+	return {
+		output: [text(value)],
+		structuredOutput: value,
+		details: details as unknown as JsonValue,
+		...(usage === undefined ? {} : { usage }),
+	};
 }
 
 function failure(value: string): ToolExecutionResult {
@@ -202,18 +241,22 @@ function isRecord(value: JsonValue | undefined): value is Record<string, JsonVal
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+type AttachedImage = { readonly path: string; readonly described: boolean };
+
 /**
- * The trusted image paths of a `read` result: only `details` count, never text. Results from before PDF support carry
+ * The trusted images of a `read` result: only `details` count, never text. Results from before PDF support carry
  * one `imagePath` instead of `images`.
  */
-export function imagePathsOf(message: Message): string[] {
+export function imagesOf(message: Message): AttachedImage[] {
 	if (message.role !== "toolResult" || message.toolName !== "read") return [];
 	const details = message.details as JsonValue | undefined;
 	if (!isRecord(details)) return [];
-	if (typeof details.imagePath === "string") return [details.imagePath];
+	if (typeof details.imagePath === "string") return [{ path: details.imagePath, described: false }];
 	const images = details.images;
 	if (!Array.isArray(images)) return [];
-	return images.flatMap((image) => (isRecord(image) && typeof image.path === "string" ? [image.path] : []));
+	return images.flatMap((image) =>
+		isRecord(image) && typeof image.path === "string" ? [{ path: image.path, described: image.described === true }] : [],
+	);
 }
 
 /** Re-attach the newest images to the request; older ones get a note. */
@@ -221,16 +264,20 @@ export async function attachImages(
 	messages: readonly Message[],
 	options: { maxBytes: number; canView: boolean },
 ): Promise<Message[]> {
-	const slots = messages.flatMap((message, index) => imagePathsOf(message).map((_, image) => `${index}:${image}`));
+	const slots = messages.flatMap((message, index) => imagesOf(message).map((_, image) => `${index}:${image}`));
 	const recent = new Set(slots.slice(-IMAGES_PER_REQUEST));
 	return Promise.all(
 		messages.map(async (message, index) => {
-			const paths = imagePathsOf(message);
-			if (paths.length === 0) return message;
+			const images = imagesOf(message);
+			if (images.length === 0) return message;
 			const result = message as ToolResult;
-			if (!options.canView) return appendContent(result, [text("[this model cannot view images]")]);
+			if (!options.canView) {
+				// A vision model's description in the result text already stands in for the pictures.
+				if (images.every((image) => image.described)) return message;
+				return appendContent(result, [text("[this model cannot view images]")]);
+			}
 			const parts = await Promise.all(
-				paths.map((path, image) =>
+				images.map(({ path }, image) =>
 					recent.has(`${index}:${image}`)
 						? loadImage(path, options.maxBytes)
 						: text("[image omitted to save context; read it again to view]"),
@@ -267,7 +314,7 @@ async function requestModel(api: HookApi, context: Context) {
 export function createImageRequestHook(): HookRegistration {
 	return hook(GenerationTask, {
 		beforeRequest: async (request, api, context) => {
-			if (!request.messages.some((message) => imagePathsOf(message).length > 0)) return undefined;
+			if (!request.messages.some((message) => imagesOf(message).length > 0)) return undefined;
 			const model = await requestModel(api, context);
 			const messages = await attachImages(request.messages, { maxBytes: maxImageBytes(model), canView: canView(model) });
 			return { messages };

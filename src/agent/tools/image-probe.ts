@@ -1,5 +1,15 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
+
+const FALLBACK_MAX_BYTES = 3_932_160;
+
 export type ImageMime = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 export type ImageProbe = { readonly mime: ImageMime; readonly width?: number; readonly height?: number };
+
+/** Largest raw image a model accepts: 3/4 of its base64 limit, else 3.75 MB. */
+export function maxImageBytes(model: Model<Api> | undefined): number {
+	const base64 = model?.inputLimits?.images?.resize?.maxBytes;
+	return base64 === undefined ? FALLBACK_MAX_BYTES : Math.floor((base64 * 3) / 4);
+}
 
 /** Sniff an image type from its magic bytes and read its dimensions from the header when present. Never throws. */
 export function probeImage(bytes: Uint8Array): ImageProbe | undefined {

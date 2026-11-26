@@ -27,6 +27,7 @@ export function testConfig(dir: string, extra: Record<string, string> = {}) {
 			PI_WORKDIR: join(dir, "work"),
 			PI_DATA_DIR: join(dir, "data"),
 			TELEGRAM_RICH: "never",
+			PI_VISION_MODEL: "off",
 			...extra,
 		},
 		{ cwd: dir, home: dir },

@@ -4,6 +4,7 @@ import { defineExtension, type Extension, type ToolRegistration } from "@earendi
 import { createEditTool } from "@earendil-works/pi-durable/tools";
 import { fileCache } from "./file-cache.ts";
 import { createImageReadTool, createImageRequestHook } from "./image-read.ts";
+import type { VisionFallback } from "./vision.ts";
 import { createDiffWriteTool } from "./write-diff.ts";
 
 export type WorkspaceToolsOptions = {
@@ -11,6 +12,8 @@ export type WorkspaceToolsOptions = {
 	readonly programPath?: string;
 	/** Folder for rendered PDF pages; default a folder in the system temp folder. */
 	readonly cacheDir?: string;
+	/** Describes images for a model without image input; none: such a model gets a note instead. */
+	readonly vision?: VisionFallback;
 };
 
 /**
@@ -21,6 +24,7 @@ export function createWorkspaceTools(options: WorkspaceToolsOptions = {}): Exten
 	const read = createImageReadTool({
 		programs: { path: options.programPath ?? process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin" },
 		cache: fileCache(options.cacheDir ?? join(tmpdir(), "pi-durable-telegram-files")),
+		...(options.vision === undefined ? {} : { vision: options.vision }),
 	});
 	return defineExtension({
 		name: "workspace",
