@@ -71,7 +71,7 @@ test("T-fetch-parts: a long page comes in parts with the next offset", async () 
 	});
 	const first = await read({ EXA_API_KEY: "k" }, { url: "https://a.example", limit: 2000 });
 	assert.match(first, /Characters 0-2000 of 5000\./);
-	assert.match(first, /call web_fetch again with offset 2000/);
+	assert.match(first, /call web_fetch again for this url with offset 2000/);
 	const last = await read({ EXA_API_KEY: "k" }, { url: "https://a.example", offset: 4000, limit: 2000 });
 	assert.match(last, /Characters 4000-5000 of 5000\./);
 	assert.doesNotMatch(last, /offset/);
@@ -111,4 +111,31 @@ test("T-fetch-urls: only public http(s) host names; nothing is sent for a refuse
 test("T-fetch-providers: brave and parallel have web_search only", () => {
 	assert.equal(fetchTool({ BRAVE_API_KEY: "b" }), undefined);
 	assert.equal(fetchTool({ PARALLEL_API_KEY: "p" }), undefined);
+});
+
+test("T-fetch-many: up to 5 URLs in one request share the limit; a failed page does not hide the others", async () => {
+	respond = () => ({
+		status: 200,
+		body: JSON.stringify({
+			results: [
+				{ url: "https://a.example/", text: "a".repeat(9000) },
+				{ url: "https://b.example/", text: "page b" },
+			],
+			statuses: [
+				{ id: "https://a.example/", status: "success" },
+				{ id: "https://b.example/", status: "success" },
+				{ id: "https://c.example/", status: "error", error: { tag: "CRAWL_NOT_FOUND" } },
+			],
+		}),
+	});
+	const text = await read(
+		{ EXA_API_KEY: "k" },
+		{ urls: ["https://a.example", "https://b.example", "https://c.example", "https://a.example"], limit: 6000 },
+	);
+	assert.deepEqual(JSON.parse(seen[0]?.body ?? "").urls, ["https://a.example/", "https://b.example/", "https://c.example/"]);
+	assert.equal(seen.length, 1, "one request for all pages");
+	assert.match(text, /Characters 0-2000 of 9000\./, "6000 shared by 3 pages");
+	assert.match(text, /page b/);
+	assert.match(text, /could not read this page: CRAWL_NOT_FOUND/);
+	assert.equal(text.match(/<web_page /g)?.length, 3);
 });

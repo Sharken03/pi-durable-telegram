@@ -17,10 +17,11 @@ Plugins load in the listed order. `/status` shows which loaded and which failed.
 
 ## Web search: `search`
 
-Gives the agent a `web_search` tool: a query and an optional number of results (1 to 10, default 5). Each result has
-a title, a link, a date when the provider gives one, and a short snippet.
+Gives the agent a `web_search` tool: a query, or up to 3 queries that run at once, and an optional number of results
+per query (1 to 10, default 5). Each result has a title, a link, a date when the provider gives one, and a short
+snippet. With `includeContent` (Exa, Tavily) each result also has up to 3000 characters of page text.
 
-With Exa or Tavily the agent also gets `web_fetch`: it reads a public page as text, through the provider, so the bot
+With Exa or Tavily the agent also gets `web_fetch`: it reads up to 5 public pages as text in one call, through the provider, so the bot
 never opens a URL on its own network. An optional `prompt` puts a short answer from the page first (Exa only). A long
 page comes in parts of up to 40000 characters (`offset`, `limit`). IP addresses, local names and URLs with a password
 are refused.

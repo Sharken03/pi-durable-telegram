@@ -247,3 +247,25 @@ test("T-search-agent: no key fails the plugin at load; a provider error reaches 
 		await cleanup();
 	}
 });
+
+test("T-search-many: up to 3 queries run at once; includeContent asks exa for page text", async () => {
+	respond = () => ({
+		status: 200,
+		body: JSON.stringify({
+			results: [{ title: "T", url: "https://t.example", highlights: ["hi"], text: "full page text" }],
+		}),
+	});
+	const text = await run(
+		{ EXA_API_KEY: "k" },
+		{ queries: ["one", "two", "three", "four"], count: 2, includeContent: true },
+	);
+	assert.equal(seen.length, 3, "a fourth query is dropped");
+	assert.deepEqual(
+		seen.map((s) => JSON.parse(s.body).query).sort(),
+		["one", "three", "two"],
+	);
+	assert.deepEqual(JSON.parse(seen[0]?.body ?? "").contents, { highlights: true, text: { maxCharacters: 3000 } });
+	assert.equal(text.match(/<search_results /g)?.length, 3);
+	assert.match(text, /Content: full page text/);
+	await assert.rejects(run({ EXA_API_KEY: "k" }, { queries: [" "] }), /give query or queries/);
+});
