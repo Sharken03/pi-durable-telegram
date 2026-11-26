@@ -3,7 +3,8 @@ import { ChatSettings, VERBOSE_LEVELS, type Verbose, viewOf } from "../docs.ts";
 import { recordKey } from "../intake.ts";
 import { type MessageScope, reply } from "../scope.ts";
 
-const VERBOSE_HELP = "off: answer only; on: tool calls in the draft and a steps fold; full: also arguments and results";
+const VERBOSE_HELP =
+	"off: the answer only; on: tool calls in the draft, steps and changes folds; full: also arguments and results";
 
 /** /verbose [off|on|full]: set how much of a run this chat shows, or show the current level. */
 export async function runVerbose(scope: MessageScope, args: string): Promise<void> {

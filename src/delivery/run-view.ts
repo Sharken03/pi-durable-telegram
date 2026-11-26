@@ -304,7 +304,8 @@ export function composeAnswer(input: ComposeInput): Composed {
 	if (!input.rich) return { markdown: input.answer ?? "", documents: [] };
 	const long = input.answer === undefined ? undefined : longAnswer(input.answer);
 	const documents: OutDocument[] = long?.document === undefined ? [] : [long.document];
-	const changes = changesFold(trace);
+	// Verbose off is the answer and the footer only: no steps, no changes.
+	const changes = view.verbose === "off" ? { markdown: undefined, documents: [] } : changesFold(trace);
 	const parts = [
 		view.reasoning ? reasoningFold(trace) : undefined,
 		long?.text,

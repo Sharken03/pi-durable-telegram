@@ -136,7 +136,8 @@ test("final answer: answer, steps, changes and footer in this order; HTML gets t
 		documents: [],
 	});
 	const quiet = composeAnswer({ answer: "All done.", trace, view: { ...DEFAULT_VIEW, verbose: "off" }, limit: 1000, rich: true });
-	assert.doesNotMatch(quiet.markdown, /steps/, "verbose off has no steps fold");
+	assert.doesNotMatch(quiet.markdown, /<details>/, "verbose off has no steps or changes fold");
+	assert.deepEqual(quiet.documents, []);
 	const empty = composeAnswer({ answer: undefined, trace: emptyTrace(), view: DEFAULT_VIEW, limit: undefined, rich: true });
 	assert.equal(empty.markdown, "", "an empty answer, no steps and no changes leave nothing");
 });
