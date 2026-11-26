@@ -1,0 +1,30 @@
+# Typecheck and tests run here, never on the phone (tsc there can kill Termux).
+name: typecheck
+
+on:
+  push:
+    branches:
+      - mvp
+      - "typecheck/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: typecheck-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: node -v
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
