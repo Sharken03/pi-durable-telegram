@@ -3,6 +3,7 @@ import { BACKGROUND_CONTEXT as BG } from "@earendil-works/chord/context";
 import { LiveDoc } from "@earendil-works/pi-durable";
 import type { Message, Update } from "grammy/types";
 import { probeImage } from "../agent/tools/image-probe.ts";
+import { officeKind } from "../agent/tools/office-read.ts";
 import { truncate } from "../format/escape.ts";
 import { contextLine } from "../format/rich.ts";
 import {
@@ -13,8 +14,9 @@ import {
 	missingAttachmentNote,
 	otherNote,
 } from "../media/attachments.ts";
-import { heifBrand } from "../media/sniff.ts";
+import { heifBrand, isPdf, isZip } from "../media/sniff.ts";
 import { type Stt, SttError, sttFailureText } from "../media/stt.ts";
+import { openZip } from "../media/zip.ts";
 import { isFatalHarnessError } from "../runtime/fatal.ts";
 import { errorSummary } from "../runtime/log.ts";
 import { DownloadError, downloadToFile, downloadToMemory } from "../telegram/download.ts";
@@ -214,7 +216,7 @@ async function handleAttachment(scope: MessageScope, note?: string): Promise<voi
 		await admitContent(scope, missingAttachmentNote({ attachment, reason: failure, caption }));
 		return;
 	}
-	const isImage = attachment.kind === "photo" || (await sniffImage(path));
+	const sniffed = attachment.kind === "photo" ? "image" : await sniffFile(path);
 	const kind = attachment.kind;
 	await admitContent(
 		scope,
@@ -222,7 +224,8 @@ async function handleAttachment(scope: MessageScope, note?: string): Promise<voi
 			kind,
 			workdir: scope.rt.workdir,
 			path,
-			isImage,
+			isImage: sniffed === "image",
+			isDocument: sniffed === "document",
 			caption,
 			...(note === undefined ? {} : { note }),
 		}),
@@ -240,14 +243,25 @@ async function saveAttachment(scope: MessageScope, attachment: Attachment, path:
 	}
 }
 
-/** An image the read tool shows: PNG, JPEG, WebP, GIF, or HEIC, HEIF and AVIF, which it converts. */
-async function sniffImage(path: string): Promise<boolean> {
+/**
+ * What the read tool makes of a saved file: an image (PNG, JPEG, WebP, GIF; HEIC, HEIF and AVIF are converted), a
+ * document (PDF, docx, xlsx, pptx), or undefined for anything else.
+ */
+async function sniffFile(path: string): Promise<"image" | "document" | undefined> {
+	const head = await readHead(path);
+	if (probeImage(head) !== undefined || heifBrand(head) !== undefined) return "image";
+	if (isPdf(head)) return "document";
+	if (!isZip(head)) return undefined;
+	const zip = await openZip(path).catch(() => undefined);
+	return zip !== undefined && officeKind(zip) !== undefined ? "document" : undefined;
+}
+
+async function readHead(path: string): Promise<Buffer> {
 	const handle = await open(path, "r");
 	try {
 		const header = Buffer.alloc(4096);
 		const { bytesRead } = await handle.read(header, 0, header.length, 0);
-		const head = header.subarray(0, bytesRead);
-		return probeImage(head) !== undefined || heifBrand(head) !== undefined;
+		return header.subarray(0, bytesRead);
 	} finally {
 		await handle.close();
 	}

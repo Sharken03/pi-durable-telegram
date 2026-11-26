@@ -14,10 +14,12 @@ import {
 import { createReadTool } from "@earendil-works/pi-durable/tools";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import { ProgramError, type ProgramPath } from "../../media/programs.ts";
-import { heifBrand, isPdf } from "../../media/sniff.ts";
+import { heifBrand, isOle, isPdf, isZip } from "../../media/sniff.ts";
+import { ZipError } from "../../media/zip.ts";
 import type { FileCache, SourceId } from "./file-cache.ts";
 import { convertHeif, heifKind } from "./heif-read.ts";
 import { type ImageMime, type ImageProbe, maxImageBytes, probeImage } from "./image-probe.ts";
+import { readOffice } from "./office-read.ts";
 import { MAX_PAGES_PER_READ, type RenderedPage, readPdf } from "./pdf-read.ts";
 import { addUsage, type Description, type VisionFallback, type VisionImage } from "./vision.ts";
 
@@ -55,7 +57,7 @@ const readParameters = obj(
 	{ open: true },
 );
 
-type ReadArgs = { path: string; pages?: unknown };
+type ReadArgs = { path: string; offset?: unknown; limit?: unknown; pages?: unknown };
 
 /** A model that is unknown counts as one that can view images. */
 function canView(model: Model<Api> | undefined): boolean {
@@ -102,7 +104,8 @@ export function createImageReadTool(options: ReadToolOptions): ToolRegistration 
 			`${read.description} Images (PNG, JPEG, WebP, GIF) are shown to you as pictures; HEIC, HEIF and AVIF ` +
 			"photos are converted to JPEG first. " +
 			`A PDF gives its page count and the text of up to ${MAX_PAGES_PER_READ} pages per call; choose pages with ` +
-			'pages, such as "3-5". PDF pages without text are shown as pictures.',
+			'pages, such as "3-5". PDF pages without text are shown as pictures. Word, Excel and PowerPoint files ' +
+			"(docx, xlsx, pptx) are shown as Markdown; read on with offset.",
 		parameters: readParameters,
 		execute: async (args, api, context) => {
 			const input = args as ReadArgs;
@@ -143,6 +146,11 @@ async function readSpecial(
 	const brand = heifBrand(file.header);
 	if (brand !== undefined) return readHeifFile(file, heifKind(brand), call);
 	if (isPdf(file.header)) return readPdfFile(file, input.pages, call);
+	if (isZip(file.header)) return readOfficeFile(file, input);
+	if (isOle(file.header)) {
+		const what = "an old binary Office file (doc, xls, ppt) or a password-protected Office file";
+		return failure(`Cannot read ${file.path}: it is ${what}. Ask for a docx, xlsx, pptx or PDF version.`);
+	}
 	return undefined;
 }
 
@@ -240,6 +248,21 @@ async function readPdfFile(file: OpenedFile, pages: unknown, call: Call): Promis
 		return success(result.text, images, usage);
 	} catch (error) {
 		if (error instanceof ProgramError) return failure(`Cannot read the PDF ${file.path}: ${error.message}`);
+		throw error;
+	}
+}
+
+async function readOfficeFile(file: OpenedFile, input: ReadArgs): Promise<ToolExecutionResult> {
+	try {
+		const window = {
+			...(typeof input.offset === "number" ? { offset: input.offset } : {}),
+			...(typeof input.limit === "number" ? { limit: input.limit } : {}),
+		};
+		const result = await readOffice(file.path, window);
+		if (result !== undefined) return success(result, []);
+		return failure(`Cannot read ${file.path}: it is a ZIP archive, not a Word, Excel or PowerPoint file.`);
+	} catch (error) {
+		if (error instanceof ZipError) return failure(`Cannot read ${file.path}: ${error.message}.`);
 		throw error;
 	}
 }
