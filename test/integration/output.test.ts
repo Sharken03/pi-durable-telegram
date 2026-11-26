@@ -106,7 +106,7 @@ test("T-verbose: /verbose off drops call lines and folds and is kept across a re
 
 test("T-file-steps: read, write and edit show the bot's short result; an error keeps the tool's text", async () => {
 	const faux = newFaux();
-	const call = (name: string, args: Record<string, unknown>) =>
+	const call = (name: string, args: Parameters<typeof fauxToolCall>[1]) =>
 		fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
 	faux.setResponses([
 		call("read", { path: "guide.md" }),
