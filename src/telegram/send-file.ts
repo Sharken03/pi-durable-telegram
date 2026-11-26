@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { obj, opt, str } from "@earendil-works/pi-schema";
 import { isAnimatedGif, probeImage } from "../agent/tools/image-probe.ts";
+import { outsideText, realInside } from "../agent/tools/path-guard.ts";
 import { ChatInfo } from "../channel/docs.ts";
 import { truncate } from "../format/escape.ts";
 import type { Logger } from "../runtime/log.ts";
@@ -21,7 +22,13 @@ const PHOTO_LIMIT_BYTES = 10 * 1024 * 1024;
 const GIF_SCAN_BYTES = 1024 * 1024;
 const CAPTION_LIMIT = 1024;
 
-type SendFileDeps = { readonly port: () => TelegramPort; readonly log: Logger; readonly uploadLimit?: number };
+type SendFileDeps = {
+	readonly port: () => TelegramPort;
+	readonly log: Logger;
+	/** Only files in this folder can be sent. */
+	readonly workdir: string;
+	readonly uploadLimit?: number;
+};
 
 const parameters = obj(
 	{
@@ -61,7 +68,7 @@ async function sendFile(
 ): Promise<ToolExecutionResult> {
 	const chat = await api.snapshot(ChatInfo, api.conversationId, context);
 	if (chat === undefined || chat.chatId === 0) return failure("No Telegram chat is bound to this conversation.");
-	const located = await locate(args.path, (await api.agent(context)).cwd);
+	const located = await locate(args.path, (await api.agent(context)).cwd, deps.workdir);
 	if (typeof located === "string") return failure(located);
 	const limit = deps.uploadLimit ?? UPLOAD_LIMIT_BYTES;
 	if (located.size > limit) {
@@ -76,8 +83,10 @@ async function sendFile(
 
 type Located = { path: string; size: number };
 
-async function locate(path: string, cwd: string | undefined): Promise<Located | string> {
-	const absolute = resolve(cwd ?? process.cwd(), path);
+/** The real file to send; a file outside the working directory, also through a symlink, is refused. */
+async function locate(path: string, cwd: string | undefined, workdir: string): Promise<Located | string> {
+	const absolute = resolve(cwd ?? workdir, path);
+	if ((await realInside(absolute, [workdir])) === undefined) return outsideText(path);
 	try {
 		const real = await realpath(absolute);
 		const info = await stat(real);

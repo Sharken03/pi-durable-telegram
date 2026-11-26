@@ -139,6 +139,7 @@ export function createTelegramChannel(options: TelegramChannelOptions): Telegram
 		compactReport,
 		port: () => port,
 		log,
+		workdir: options.workdir,
 		allowed: new Set(options.allowedUserIds),
 		...(options.limits?.uploadBytes === undefined ? {} : { uploadLimit: options.limits.uploadBytes }),
 	});

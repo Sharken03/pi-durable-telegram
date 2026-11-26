@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { BACKGROUND_CONTEXT as BG } from "@earendil-works/chord/context";
@@ -154,4 +154,53 @@ test("T-no-bash: the agent has no shell tool; a bash call is an error and runs n
 	assert.ok(!tools.includes("bash"), "no bash tool is offered");
 	assert.equal(seen?.isError, true);
 	assert.ok(!existsSync(marker), "the command did not run");
+});
+
+test("T-path-guard: read, write, edit and send_file stay in the working directory, also through .. and symlinks", async () => {
+	const faux = newFaux();
+	const { t, port, work } = await setup(faux);
+	const outside = join(work, "..", "outside.txt");
+	await writeFile(outside, "private");
+	await symlink(outside, join(work, "link.txt"));
+	await symlink(join(work, ".."), join(work, "up"));
+	await symlink(join(work, "..", "made.txt"), join(work, "dangling.txt"));
+	await mkdir(join(work, "inbox", "2026-11-26"), { recursive: true });
+	await writeFile(join(work, "inbox", "2026-11-26", "1-note.txt"), "from the user");
+	const calls: [string, Record<string, unknown>][] = [
+		["read", { path: outside }],
+		["read", { path: "../outside.txt" }],
+		["read", { path: "link.txt" }],
+		["read", { path: "up/outside.txt" }],
+		["write", { path: "link.txt", content: "changed" }],
+		["edit", { path: "link.txt", edits: [{ oldText: "private", newText: "changed" }] }],
+		["write", { path: "dangling.txt", content: "made" }],
+		["write", { path: "../made.txt", content: "made" }],
+		["telegram_send_file", { path: outside }],
+		["telegram_send_file", { path: "link.txt" }],
+		["write", { path: "new/sub/file.txt", content: "inside" }],
+		["read", { path: "inbox/2026-11-26/1-note.txt" }],
+		["read", { path: `${work}/new/../new/sub/file.txt` }],
+	];
+	const seen: Seen[] = [];
+	faux.setResponses([
+		...calls.map(([name, args], index) =>
+			index === 0 ? toolCall(name, args) : observe((m) => seen.push(inspect(m)), toolCall(name, args)),
+		),
+		observe((m) => seen.push(inspect(m)), fauxAssistantMessage("checked")),
+	]);
+	await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "try the paths"));
+	await waitFor(() => port.textsIn(CHAT).includes("checked"), { what: "the last answer" });
+	const refused = calls.length - 3;
+	for (const [index, [name, args]] of calls.entries()) {
+		const result = seen[index];
+		if (index < refused) {
+			assert.equal(result?.isError, true, `${name} ${args.path} is refused`);
+			assert.equal(result?.text, `Path is outside the working directory: ${args.path}`);
+		} else assert.equal(result?.isError, false, `${name} ${args.path} is allowed: ${result?.text}`);
+	}
+	assert.equal(await readFile(outside, "utf8"), "private", "the file outside is unchanged");
+	assert.ok(!existsSync(join(work, "..", "made.txt")), "no file is made outside");
+	assert.equal(await readFile(join(work, "new", "sub", "file.txt"), "utf8"), "inside");
+	assert.match(seen.at(-2)?.text ?? "", /from the user/);
+	assert.equal(port.created(CHAT).filter((m) => m.kind === "document").length, 0, "nothing was sent");
 });
