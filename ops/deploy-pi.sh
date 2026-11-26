@@ -41,7 +41,8 @@ sleep 3
 if ssh "$HOST" 'systemctl --user is-active --quiet orkestrator'; then
 	echo "orkestrator is active on $HOST"
 else
-	echo "error: orkestrator is not active on $HOST; see: journalctl --user -u orkestrator -n 50" >&2
+	# The journal is in RAM only, so the service user cannot read its own log; an admin user can.
+	echo "error: orkestrator is not active on $HOST; see: ssh pi 'journalctl _SYSTEMD_USER_UNIT=orkestrator.service -n 50'" >&2
 	exit 1
 fi
 
