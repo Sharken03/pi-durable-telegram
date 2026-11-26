@@ -44,13 +44,14 @@ test("commands are registered; /start and /help reply once with the command list
 	const { t, port } = await setup(newFaux());
 	assert.deepEqual(
 		port.commands.map((c) => c.command),
-		["new", "stop", "compact", "status", "verbose", "reasoning", "help"],
+		["new", "stop", "compact", "status", "model", "think", "verbose", "reasoning", "help"],
 	);
 	await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "/start"));
 	await t.agent.channel.handleUpdate(textUpdate(CHAT, 2, "/help"));
 	await waitFor(() => replyTo(port, 2));
 	assert.match(replyTo(port, 1) ?? "", /\/new - Start a fresh context/);
 	assert.match(replyTo(port, 2) ?? "", /Voice messages are off/);
+	assert.match(replyTo(port, 2) ?? "", /\/m is short for \/model and \/t for \/think/);
 });
 
 test("/status reports model, thinking, auth, queue and spend", async () => {

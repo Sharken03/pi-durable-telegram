@@ -1,4 +1,5 @@
 import type { Models } from "@earendil-works/pi-ai";
+import type { Catalog } from "../agent/choices.ts";
 import type { Conversation, Harness, ModelRef } from "@earendil-works/pi-durable";
 import type { Message } from "grammy/types";
 import type { CompactReportTask } from "../delivery/compact-report.ts";
@@ -23,6 +24,10 @@ export type ChannelRuntime = {
 	readonly models: Models | undefined;
 	readonly contextCap: number | undefined;
 	readonly model: ModelRef;
+	/** The model panel's models and presets. */
+	readonly catalog: Catalog;
+	/** The preset order of the command menu as last set; undefined until a menu was set. */
+	readonly menu: { presets: readonly string[] | undefined };
 	readonly downloadLimit: number;
 	readonly deliver: DeliverTask;
 	readonly compactReport: CompactReportTask;

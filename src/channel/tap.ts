@@ -8,6 +8,7 @@ import { contextLine, markChosen } from "../format/rich.ts";
 import { isFatalHarnessError } from "../runtime/fatal.ts";
 import { errorSummary } from "../runtime/log.ts";
 import { telegramErrorSummary } from "../telegram/errors.ts";
+import { handlePanelTap, isPanelData } from "./commands/model.ts";
 import { runStop } from "./commands/stop.ts";
 import { Buttons, Diffs, Retries, rememberButtons } from "./docs.ts";
 import { admit, admitIn } from "./intake.ts";
@@ -23,7 +24,8 @@ type Tap = { chatId: number; messageId: number; sent: string; data: string };
  * A tap on an answer's button is the user's next message: the time of the tap, the button's data and a line naming
  * the message it was under. It is admitted once per callback query, so a redelivered tap is a duplicate; then the
  * message shows the choice. Buttons of any old message work; without the sent Markdown the choice is just not marked.
- * Retry and Stop under an error message, and Full diff under an answer, are handled here, not sent to the model.
+ * Retry and Stop under an error message, Full diff under an answer and the model panel are handled here, not sent to
+ * the model.
  */
 export async function handleTap(rt: ChannelRuntime, query: CallbackQuery): Promise<void> {
 	await rt.port.answerCallbackQuery(query.id).catch((error: unknown) => {
@@ -36,6 +38,10 @@ export async function handleTap(rt: ChannelRuntime, query: CallbackQuery): Promi
 	const conversation = await rt.directory.get(chatId, BG);
 	if (query.data === RETRY_DATA) return retry(rt, conversation, { chatId, messageId, queryId: query.id });
 	if (query.data === STOP_DATA) return stop(rt, conversation, { chatId, messageId, queryId: query.id });
+	if (isPanelData(query.data)) {
+		const markup = "reply_markup" in message ? message.reply_markup : undefined;
+		return handlePanelTap(rt, conversation, { chatId, messageId, queryId: query.id, data: query.data, markup });
+	}
 	if (query.data.startsWith(DIFF_DATA)) {
 		const which = query.data.slice(DIFF_DATA.length);
 		rt.track(sendDiff(rt, conversation, { chatId, messageId, queryId: query.id }, which));

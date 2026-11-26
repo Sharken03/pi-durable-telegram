@@ -76,6 +76,7 @@ export class TraceBuilder {
 		const usage = message.usage;
 		this.trace.model = message.model;
 		this.trace.provider = message.provider;
+		if (message.thinkingLevel !== undefined) this.trace.effort = message.thinkingLevel;
 		const sum = usage.input + usage.cacheRead + usage.cacheWrite + usage.output;
 		this.trace.contextTokens = usage.totalTokens > 0 ? usage.totalTokens : sum;
 	}

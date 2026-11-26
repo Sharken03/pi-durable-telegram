@@ -3,6 +3,7 @@ import type { Models, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { Extension, Harness, ModelRef } from "@earendil-works/pi-durable";
 import { Bot, GrammyError } from "grammy";
 import type { Update } from "grammy/types";
+import { type Catalog, defaultCatalog, fitEffort, lookupModel, presetFor } from "../agent/choices.ts";
 import { createCompactReportTask } from "../delivery/compact-report.ts";
 import { createDeliverTask } from "../delivery/task.ts";
 import type { DeliveryDeps } from "../delivery/types.ts";
@@ -17,8 +18,8 @@ import { telegramErrorSummary } from "../telegram/errors.ts";
 import { createGrammyPort } from "../telegram/grammy-port.ts";
 import type { TelegramPort } from "../telegram/port.ts";
 import { createRetryTransformer } from "../telegram/retry.ts";
-import { COMMANDS } from "./commands/list.ts";
-import { ConversationDirectory } from "./conversations.ts";
+import { updateMenu } from "./commands/model.ts";
+import { ConversationDirectory, type StoredChoice } from "./conversations.ts";
 import { createTelegramExtension } from "./extension.ts";
 import { handleUpdate } from "./handlers.ts";
 import type { ChannelRuntime } from "./scope.ts";
@@ -31,6 +32,8 @@ export type TelegramChannelOptions = {
 	readonly workdir: string;
 	readonly model: ModelRef;
 	readonly thinkingLevel: ModelThinkingLevel;
+	/** The model panel's models and presets (`buildCatalog`); default: the configured model only. */
+	readonly catalog?: Catalog;
 	/** Speech to text for voice messages; without it voice gets a "not configured" reply. */
 	readonly stt?: Stt;
 	/** Bot API root; default https://api.telegram.org. */
@@ -109,6 +112,9 @@ export function createTelegramChannel(options: TelegramChannelOptions): Telegram
 	const bot = new Bot(options.botToken, { client: { apiRoot, timeoutSeconds: 75 } });
 	bot.api.config.use(createRetryTransformer());
 	const port = options.port ?? createGrammyPort({ token: options.botToken, apiRoot, api: bot.api });
+	const fallback = { ...options.model, effort: options.thinkingLevel };
+	const catalog =
+		options.catalog ?? defaultCatalog(fallback, options.models?.getModel(fallback.provider, fallback.modelId));
 	let harness: Harness | undefined;
 	const deps: DeliveryDeps = {
 		port: () => port,
@@ -122,6 +128,7 @@ export function createTelegramChannel(options: TelegramChannelOptions): Telegram
 		rich: options.rich === true,
 		contextLimit: (provider, modelId) =>
 			contextLimit(options.models?.getModel(provider, modelId)?.contextWindow, options.contextCap),
+		presetName: (provider, modelId, effort) => presetFor(catalog, { provider, modelId, effort })?.name,
 		...(options.previewIntervalMs === undefined ? {} : { previewIntervalMs: options.previewIntervalMs }),
 		...(options.editRetryDelaysMs === undefined ? {} : { editRetryDelaysMs: options.editRetryDelaysMs }),
 	};
@@ -135,7 +142,7 @@ export function createTelegramChannel(options: TelegramChannelOptions): Telegram
 		allowed: new Set(options.allowedUserIds),
 		...(options.limits?.uploadBytes === undefined ? {} : { uploadLimit: options.limits.uploadBytes }),
 	});
-	const lifecycle = new Lifecycle({ options, log, onFatal, bot, port, deliver, compactReport });
+	const lifecycle = new Lifecycle({ options, catalog, log, onFatal, bot, port, deliver, compactReport });
 	return {
 		extension,
 		start: async (opened, context, startOptions) => {
@@ -150,6 +157,7 @@ export function createTelegramChannel(options: TelegramChannelOptions): Telegram
 
 type LifecycleDeps = {
 	options: TelegramChannelOptions;
+	catalog: Catalog;
 	log: Logger;
 	onFatal: FatalHandler;
 	bot: Bot;
@@ -186,9 +194,7 @@ class Lifecycle {
 		});
 		const changed = await rt.directory.reconfigureAll(context);
 		if (changed > 0) this.#d.log.info("chats_reconfigured", { count: changed });
-		await this.#d.port.setMyCommands(COMMANDS).catch((error: unknown) => {
-			this.#d.log.warn("set_commands_failed", telegramErrorSummary(error));
-		});
+		await updateMenu(rt, true);
 		harness.resume();
 		if (polling) await this.#startPolling(rt);
 		this.#notifyPlugins(rt);
@@ -207,11 +213,11 @@ class Lifecycle {
 	}
 
 	#runtime(harness: Harness, plugins: PluginReport): ChannelRuntime {
-		const { options, log, port } = this.#d;
+		const { options, catalog, log, port } = this.#d;
 		const defaults = { model: options.model, thinkingLevel: options.thinkingLevel, cwd: options.workdir };
 		return {
 			harness,
-			directory: new ConversationDirectory(harness, defaults),
+			directory: new ConversationDirectory(harness, defaults, this.#storedChoice()),
 			port,
 			log,
 			allowed: new Set(options.allowedUserIds),
@@ -220,6 +226,8 @@ class Lifecycle {
 			models: options.models,
 			contextCap: options.contextCap,
 			model: options.model,
+			catalog,
+			menu: { presets: undefined },
 			downloadLimit: options.limits?.downloadBytes ?? DOWNLOAD_LIMIT_BYTES,
 			deliver: this.#d.deliver,
 			compactReport: this.#d.compactReport,
@@ -229,6 +237,22 @@ class Lifecycle {
 			onFatal: this.#d.onFatal,
 			now: () => new Date(),
 			plugins,
+		};
+	}
+
+	/** A stored choice whose model is gone or has no key falls back to the default; its level is fitted to the model. */
+	#storedChoice(): StoredChoice {
+		const { options, catalog, log } = this.#d;
+		const getModel = (provider: string, modelId: string) => options.models?.getModel(provider, modelId);
+		return (settings) => {
+			if (settings.model === undefined) return undefined;
+			const model = lookupModel(catalog, getModel, settings.model);
+			if (model === undefined) {
+				log.warn("stored_model_unusable", { model: settings.model.slice(0, 120) });
+				return undefined;
+			}
+			const thinkingLevel = fitEffort(settings.effort ?? options.thinkingLevel, model.efforts);
+			return { model: { provider: model.provider, modelId: model.modelId }, thinkingLevel };
 		};
 	}
 

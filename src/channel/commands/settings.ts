@@ -1,5 +1,5 @@
 import { BACKGROUND_CONTEXT as BG } from "@earendil-works/chord/context";
-import { ChatSettings, VERBOSE_LEVELS, type Verbose, viewOf } from "../docs.ts";
+import { ChatSettings, type StoredSettings, VERBOSE_LEVELS, type Verbose, viewOf } from "../docs.ts";
 import { recordKey } from "../intake.ts";
 import { type MessageScope, reply } from "../scope.ts";
 
@@ -48,6 +48,6 @@ function stored(scope: MessageScope) {
 	return scope.rt.harness.snapshot(ChatSettings, scope.conversation.id, BG);
 }
 
-async function save(scope: MessageScope, change: (doc: { verbose?: Verbose; reasoning?: boolean }) => void) {
+async function save(scope: MessageScope, change: (doc: StoredSettings) => void) {
 	await scope.conversation.commit(async (tx) => change(await tx.doc(ChatSettings, scope.conversation.id)), BG);
 }

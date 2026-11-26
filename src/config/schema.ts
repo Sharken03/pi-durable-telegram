@@ -9,6 +9,10 @@ export type Config = {
 	readonly provider: string;
 	readonly modelId: string;
 	readonly thinkingLevel: ModelThinkingLevel;
+	/** `PI_MODEL_CHOICES`: `provider/model` refs the model panel offers, besides the default model. */
+	readonly modelChoices: readonly string[];
+	/** `PI_PRESETS`: `name=provider/model:level` items; checked against the model registry at start. */
+	readonly presets: readonly string[];
 	readonly workdir: string;
 	readonly dataDir: string;
 	/** Credentials file: `PI_AUTH_FILE`, else pi's shared `auth.json` (see `resolveAuthFile`). */
@@ -77,6 +81,8 @@ export function parseConfig(env: Env, defaults: ConfigDefaults = { cwd: process.
 	const provider = parseProvider(env.PI_PROVIDER, out);
 	const modelId = parseNonEmpty("PI_MODEL", env.PI_MODEL, DEFAULT_MODEL, out);
 	const thinkingLevel = parseEnum("PI_THINKING", env.PI_THINKING, THINKING_LEVELS, DEFAULT_THINKING, out);
+	const modelChoices = parseList(env.PI_MODEL_CHOICES);
+	const presets = parseList(env.PI_PRESETS);
 	const workdir = resolvePath(nonEmpty(env.PI_WORKDIR) ?? defaults.cwd, defaults.cwd);
 	const dataDir = dataDirFromEnv(env, defaults);
 	const authFile = authFileFromEnv(env, defaults);
@@ -95,6 +101,8 @@ export function parseConfig(env: Env, defaults: ConfigDefaults = { cwd: process.
 		provider,
 		modelId,
 		thinkingLevel,
+		modelChoices,
+		presets,
 		workdir,
 		dataDir,
 		authFile,

@@ -88,7 +88,7 @@ export function callbackUpdate(
 	chatId: number,
 	messageId: number,
 	data: string,
-	options: { fromId?: number; queryId?: string; text?: string } = {},
+	options: { fromId?: number; queryId?: string; text?: string; markup?: unknown } = {},
 ): Update {
 	return {
 		update_id: nextUpdateId++,
@@ -102,6 +102,7 @@ export function callbackUpdate(
 				date: DATE,
 				chat: { id: chatId, type: "private", first_name: "U" },
 				...(options.text === undefined ? {} : { text: options.text }),
+				...(options.markup === undefined ? {} : { reply_markup: options.markup }),
 			},
 		},
 	} as Update;

@@ -29,9 +29,11 @@ export type Trace = {
 	/** When the user's message was placed, and when the run settled (ms). */
 	startedAt?: number;
 	endedAt?: number;
-	/** The model that wrote the answer, and the context size after it in tokens. */
+	/** The model that wrote the answer, its effort level and preset, and the context size after it in tokens. */
 	model?: string;
 	provider?: string;
+	effort?: string;
+	preset?: string;
 	contextTokens?: number;
 };
 

@@ -20,6 +20,8 @@ import { DownloadError, downloadToFile, downloadToMemory } from "../telegram/dow
 import { checkAccess } from "./access.ts";
 import { classifyMessage } from "./classify.ts";
 import { runCompact } from "./commands/compact.ts";
+import { ALIASES } from "./commands/list.ts";
+import { runModel, runPreset, runThink } from "./commands/model.ts";
 import { runNew } from "./commands/new.ts";
 import { runReasoning, runVerbose } from "./commands/settings.ts";
 import { runHelp } from "./commands/start-help.ts";
@@ -106,7 +108,8 @@ async function dispatch(scope: MessageScope): Promise<void> {
 	}
 }
 
-async function runCommand(scope: MessageScope, name: string, args: string): Promise<void> {
+async function runCommand(scope: MessageScope, typed: string, args: string): Promise<void> {
+	const name = ALIASES[typed] ?? typed;
 	switch (name) {
 		case "start":
 		case "help":
@@ -123,10 +126,17 @@ async function runCommand(scope: MessageScope, name: string, args: string): Prom
 			return runVerbose(scope, args);
 		case "reasoning":
 			return runReasoning(scope, args);
-		default:
+		case "model":
+			return runModel(scope, args);
+		case "think":
+			return runThink(scope, args);
+		default: {
+			const preset = scope.rt.catalog.presets.find((each) => each.name === name);
+			if (preset !== undefined) return runPreset(scope, preset);
 			// Unknown commands go to the model as text: skills and prompts often use their own slash words.
 			await admitContent(scope, scope.message.text ?? `/${name}`);
 			return;
+		}
 	}
 }
 
