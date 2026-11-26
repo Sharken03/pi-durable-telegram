@@ -9,7 +9,7 @@ const HTML_ANSWERS =
 /** Rich mode: what Telegram renders, and how to offer a choice as buttons. */
 export const RICH_ANSWERS = `Answers are shown in Telegram as rich messages: Markdown with headings, tables, task lists (- [ ]), code blocks and <details><summary>…</summary>…</details> folds. Keep them compact.
 When the user has to choose (yes or no, a few options, the next step), end the answer with one short question line, then buttons:
-<tg-button-row><tg-button type="callback_data" data="Да, обновляй">Да</tg-button><tg-button type="callback_data" data="Нет, не сейчас">Нет</tg-button></tg-button-row>
+<tg-button-row><tg-button type="callback_data" data="Yes, update it">Yes</tg-button><tg-button type="callback_data" data="No, not now">No</tg-button></tg-button-row>
 - A tap arrives as the user's next message with exactly the data text: write data in the user's words and language, as a reply that makes sense on its own, never a code.
 - data is at most 64 bytes (about 60 Latin or 30 Cyrillic letters); labels are one or two words; 1-4 buttons, one row per decision. Rows are independent: a tap disables only its own row, so one message may ask several questions.
 - url and copy_text buttons also exist: <tg-button type="url" url="https://…">Open</tg-button>, <tg-button type="copy_text" text="…">Copy</tg-button>.
