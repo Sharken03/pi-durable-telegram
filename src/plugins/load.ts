@@ -61,6 +61,16 @@ export function pluginKind(entry: string): "builtin" | "npm" | "path" | undefine
 }
 
 /**
+ * A hint for a `PI_PLUGINS` entry that holds another variable, such as `PI_MODEL_CHOICES=…`. Node's env file parser
+ * reads the next line as the value of a line that is `KEY=` plus spaces only.
+ */
+export function envLineHint(entry: string): string {
+	return /^[A-Z][A-Z0-9_]*=/.test(entry)
+		? `; it looks like another variable: remove the spaces after "PI_PLUGINS=" in the env file, or the next line is read as its value`
+		: "";
+}
+
+/**
  * Load and `install` each plugin in order. A plugin that fails to resolve, import, build or install, defines tasks, or
  * reuses a name in `taken` (core extensions, tools and `section:` keys, earlier plugins) is skipped and reported.
  */
@@ -87,7 +97,7 @@ export async function loadPlugins(
 			loaded.push(plugin);
 			base.log.info("plugin_loaded", { plugin, tools: extension.tools?.length ?? 0 });
 		} catch (error) {
-			problem(`did not load: ${errorSummary(error).replace(/^(Type)?Error: /, "")}`);
+			problem(`did not load: ${errorSummary(error).replace(/^(Type)?Error: /, "")}${envLineHint(plugin)}`);
 		}
 	}
 	const close = async () => void (await Promise.allSettled(closers.splice(0).map(async (fn) => fn())));
