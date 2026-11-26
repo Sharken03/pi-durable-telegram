@@ -13,6 +13,7 @@ import {
 	missingAttachmentNote,
 	otherNote,
 } from "../media/attachments.ts";
+import { heifBrand } from "../media/sniff.ts";
 import { type Stt, SttError, sttFailureText } from "../media/stt.ts";
 import { isFatalHarnessError } from "../runtime/fatal.ts";
 import { errorSummary } from "../runtime/log.ts";
@@ -239,12 +240,14 @@ async function saveAttachment(scope: MessageScope, attachment: Attachment, path:
 	}
 }
 
+/** An image the read tool shows: PNG, JPEG, WebP, GIF, or HEIC, HEIF and AVIF, which it converts. */
 async function sniffImage(path: string): Promise<boolean> {
 	const handle = await open(path, "r");
 	try {
 		const header = Buffer.alloc(4096);
 		const { bytesRead } = await handle.read(header, 0, header.length, 0);
-		return probeImage(header.subarray(0, bytesRead)) !== undefined;
+		const head = header.subarray(0, bytesRead);
+		return probeImage(head) !== undefined || heifBrand(head) !== undefined;
 	} finally {
 		await handle.close();
 	}

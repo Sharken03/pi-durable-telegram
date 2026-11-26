@@ -14,8 +14,9 @@ import {
 import { createReadTool } from "@earendil-works/pi-durable/tools";
 import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import { ProgramError, type ProgramPath } from "../../media/programs.ts";
-import { isPdf } from "../../media/sniff.ts";
+import { heifBrand, isPdf } from "../../media/sniff.ts";
 import type { FileCache, SourceId } from "./file-cache.ts";
+import { convertHeif, heifKind } from "./heif-read.ts";
 import { type ImageMime, type ImageProbe, maxImageBytes, probeImage } from "./image-probe.ts";
 import { MAX_PAGES_PER_READ, type RenderedPage, readPdf } from "./pdf-read.ts";
 import { addUsage, type Description, type VisionFallback, type VisionImage } from "./vision.ts";
@@ -98,7 +99,8 @@ export function createImageReadTool(options: ReadToolOptions): ToolRegistration 
 	return {
 		...read,
 		description:
-			`${read.description} Images (PNG, JPEG, WebP, GIF) are shown to you as pictures. ` +
+			`${read.description} Images (PNG, JPEG, WebP, GIF) are shown to you as pictures; HEIC, HEIF and AVIF ` +
+			"photos are converted to JPEG first. " +
 			`A PDF gives its page count and the text of up to ${MAX_PAGES_PER_READ} pages per call; choose pages with ` +
 			'pages, such as "3-5". PDF pages without text are shown as pictures.',
 		parameters: readParameters,
@@ -138,6 +140,8 @@ async function readSpecial(
 ): Promise<ToolExecutionResult | undefined> {
 	const call: Call = { api, context, options, model: await currentModel(api, context) };
 	if (probeImage(file.header) !== undefined) return readImage(file, call);
+	const brand = heifBrand(file.header);
+	if (brand !== undefined) return readHeifFile(file, heifKind(brand), call);
 	if (isPdf(file.header)) return readPdfFile(file, input.pages, call);
 	return undefined;
 }
@@ -159,11 +163,19 @@ function fallbackFor(call: Call): VisionFallback | undefined {
 	return canView(call.model) ? undefined : call.options.vision;
 }
 
-async function readImage(file: OpenedFile, call: Call): Promise<ToolExecutionResult> {
+type ImageFile = { readonly path: string; readonly size: number; readonly header: Uint8Array };
+/** The file the user named, when the image shown is a JPEG made from it. */
+type Original = { readonly path: string; readonly kind: string };
+
+async function readImage(file: ImageFile, call: Call, from?: Original): Promise<ToolExecutionResult> {
 	const check = checkImage(file.header, file.size, maxImageBytes(call.model));
-	if (!check.ok) return failure(check.reason);
+	if (!check.ok) return failure(from === undefined ? check.reason : `${from.path} as JPEG: ${check.reason}`);
 	const { width, height, mime } = check.probe;
-	const head = `Image ${file.path} (${width ?? "?"}x${height ?? "?"}, ${megabytes(file.size)} MB)`;
+	const size = `${width ?? "?"}x${height ?? "?"}, ${megabytes(file.size)} MB`;
+	const head =
+		from === undefined
+			? `Image ${file.path} (${size})`
+			: `Image ${from.path} (${from.kind}, converted to JPEG: ${size})`;
 	const image: ImageRef = { path: file.path, mime };
 	const vision = fallbackFor(call);
 	if (vision === undefined) return success(`${head} is attached for viewing.`, [image]);
@@ -174,6 +186,22 @@ async function readImage(file: OpenedFile, call: Call): Promise<ToolExecutionRes
 	}
 	const intro = `This model cannot view images; the vision model ${vision.label} describes it:`;
 	return success(`${head}. ${intro}\n\n${described.text}`, [{ ...image, described: true }], described.usage);
+}
+
+async function readHeifFile(file: OpenedFile, kind: string, call: Call): Promise<ToolExecutionResult> {
+	try {
+		const converted = await convertHeif(file, {
+			programs: call.options.programs,
+			cache: call.options.cache,
+			maxImageBytes: maxImageBytes(call.model),
+			...(call.context.abortSignal === undefined ? {} : { signal: call.context.abortSignal }),
+		});
+		if (typeof converted === "string") return failure(`Cannot read the ${kind} image ${file.path}: ${converted}.`);
+		return readImage(converted, call, { path: file.path, kind });
+	} catch (error) {
+		if (error instanceof ProgramError) return failure(`Cannot read the ${kind} image ${file.path}: ${error.message}`);
+		throw error;
+	}
 }
 
 async function describeFile(

@@ -49,7 +49,8 @@ edited about once per second) and is then sent as a rich message.
 - **Tools.** `read`, `write` and `edit`, working in `PI_WORKDIR` with the service user's access. There is no shell
   tool. `read` knows files by content: images are shown as pictures; a PDF gives its page count and the text of up to
   20 pages per call (`pages`, such as `"3-5"`), and pages without text are rendered as pictures. PDF support runs
-  `pdfinfo`, `pdftotext` and `pdftoppm` (Debian package `poppler-utils`) through `nice`, with fixed arguments. A
+  `pdfinfo`, `pdftotext` and `pdftoppm` (Debian package `poppler-utils`) through `nice`, with fixed arguments. HEIC,
+  HEIF and AVIF photos are converted to JPEG with `heif-dec` (Debian package `libheif-examples`) in the same way. A
   model without image input gets images and such pages as text from the vision model in `PI_VISION_MODEL`.
 - **Instructions.** `<workdir>/AGENTS.md` is added to the system prompt and re-read when it changes: tell the agent
   what lives on the server and what it must not touch.
