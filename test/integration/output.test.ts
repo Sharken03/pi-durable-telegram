@@ -55,7 +55,7 @@ test("T-draft-lines: the draft shows each call and the text between calls; the a
 	const draft = await waitFor(() => port.drafts.find((d) => d.markdown.includes("✅ `write: notes.txt`")), {
 		what: "draft with the call line",
 	});
-	assert.match(draft.markdown, /^✅ `write: notes\.txt` · Successfully wrote/m);
+	assert.match(draft.markdown, /^✅ `write: notes\.txt` · 2 lines$/m, "the bot's own short result");
 	release.open();
 	const answer = await waitFor(() => replyTo(port, 1), { what: "answer" });
 	assert.match(answer.text, /^Done\.\n\n<details><summary>1 step · write<\/summary>\n\nI write the file\.\n\n- ✅/);
@@ -99,9 +99,37 @@ test("T-verbose: /verbose off drops call lines and folds and is kept across a re
 	await waitFor(() => replyTo(port, 4));
 	await t.agent.channel.handleUpdate(textUpdate(CHAT, 5, "again"));
 	const loud = await waitFor(() => replyTo(port, 5), { what: "full answer" });
-	assert.match(loud.text, /- ✅ `write \{"path":"b\.txt","content":"y\\n"\}`\n {2}- Successfully wrote/);
+	assert.match(loud.text, /- ✅ `write \{"path":"b\.txt","content":"y\\n"\}` · 1 line\n\n<\/details>/);
 	await t.agent.channel.handleUpdate(textUpdate(CHAT, 6, "/verbose loud"));
 	assert.match((await waitFor(() => replyTo(port, 6))).text, /^Unknown level "loud"\. Use \/verbose off\|on\|full\./);
+});
+
+test("T-file-steps: read, write and edit show the bot's short result; an error keeps the tool's text", async () => {
+	const faux = newFaux();
+	const call = (name: string, args: Record<string, unknown>) =>
+		fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
+	faux.setResponses([
+		call("read", { path: "guide.md" }),
+		call("edit", { path: "guide.md", edits: [{ oldText: "two", newText: "TWO\nmore" }] }),
+		call("read", { path: "big.txt", offset: 41, limit: 40 }),
+		call("read", { path: "big.txt" }),
+		call("read", { path: "gone.md" }),
+		fauxAssistantMessage("Done."),
+	]);
+	const { t, port, dir } = await setup(faux);
+	await writeFile(join(dir, "work", "guide.md"), "one\ntwo\nthree\n");
+	await writeFile(join(dir, "work", "big.txt"), numbered("line", 2100));
+	await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "look"));
+	const answer = await waitFor(() => replyTo(port, 1), { what: "answer" });
+	const steps = answer.text.split("\n").filter((line) => line.startsWith("- "));
+	// The file's line count is the read tool's own: it counts the empty text after the last newline as a line.
+	assert.deepEqual(steps.slice(0, 4), [
+		"- ✅ `read: guide.md` · 3 lines",
+		"- ✅ `edit: guide.md` · +2 −1",
+		"- ✅ `read: big.txt` · lines 41-80 of 2101",
+		"- ✅ `read: big.txt` · lines 1-2000 of 2101",
+	]);
+	assert.match(steps[4] ?? "", /^- ❌ `read: gone\.md` · ENOENT: no such file/, "the error's text, not its harness tag");
 });
 
 test("T-reasoning: hidden by default; /reasoning show puts a fold above the answer", async () => {

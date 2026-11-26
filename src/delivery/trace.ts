@@ -17,6 +17,18 @@ export type Step = {
 	patch?: string;
 	/** The call made a new file (write) with this many lines; it has no patch. */
 	created?: { readonly lines: number };
+	/**
+	 * What a file call did, for a short result line instead of the tool's text: the lines it read or wrote (a read of
+	 * part of a file starts at `from`; `total` is the file's line count when known), or the blocks it replaced.
+	 */
+	file?: FileFacts;
+};
+
+export type FileFacts = {
+	readonly lines?: number;
+	readonly from?: number;
+	readonly total?: number;
+	readonly blocks?: number;
 };
 
 export type TraceItem =

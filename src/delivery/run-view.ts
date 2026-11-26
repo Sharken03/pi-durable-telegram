@@ -53,15 +53,43 @@ function lastText(trace: Trace): string | undefined {
 }
 
 /**
- * One call: an icon (⚙ running or waiting, ✅ ok, ❌ error), what it was called with, and a short result. A file the
- * model sent to the chat is one short line in every mode.
+ * One call: an icon (⚙ running or waiting, ✅ ok, ❌ error), what it was called with, and a short result: for a file
+ * call the bot's own (lines read or written, the change), else the start of the tool's text. A file the model sent to
+ * the chat is one short line in every mode.
  */
 export function stepLine(step: Step, verbose: Verbose, rich = true): string {
 	if (isSentFile(step)) return `📎 ${codeSpan(basename(pathOf(step) ?? "file"))} · sent`;
 	const full = verbose === "full";
 	const label = full ? `${step.name} ${argsText(step.args, 200)}` : toolHint(step.name, step.args);
-	const result = step.result === undefined || step.status === "pending" ? "" : resultLine(step.result, full, rich);
+	const raw = step.result === undefined || step.status === "pending" ? "" : resultLine(step.result, full, rich);
+	const result = briefResult(step) ?? raw;
 	return `${icon(step)} ${codeSpan(label)}${result === "" ? "" : ` · ${result}`}`;
+}
+
+/**
+ * The bot's short result of a settled file call: `149 lines` written or read, `lines 41-80 of 300` for part of a
+ * file, `+3 −1` for an edit with a diff, else `5 blocks`. Undefined for other calls and errors: they show the tool's
+ * text.
+ */
+export function briefResult(step: Step): string | undefined {
+	if (step.status !== "ok") return undefined;
+	const lines = step.created?.lines ?? step.file?.lines;
+	if (lines !== undefined) {
+		const from = step.file?.from ?? 1;
+		const total = step.file?.total;
+		if (from === 1 && total === undefined) return counted(lines, "line");
+		return `lines ${from}-${from + Math.max(lines, 1) - 1}${total === undefined ? "" : ` of ${total}`}`;
+	}
+	if (step.patch !== undefined) {
+		const { added, removed } = countPatch(step.patch);
+		return `+${added} ${MINUS}${removed}`;
+	}
+	const blocks = step.file?.blocks;
+	return blocks === undefined ? undefined : counted(blocks, "block");
+}
+
+function counted(count: number, noun: string): string {
+	return `${count} ${count === 1 ? noun : `${noun}s`}`;
 }
 
 function icon(step: Step): string {
@@ -70,8 +98,25 @@ function icon(step: Step): string {
 }
 
 function resultLine(result: string, full: boolean, rich: boolean): string {
-	if (full) return plain(result, 200, rich);
-	return plain(result.split("\n").find((line) => line.trim() !== "") ?? "", 50, rich);
+	if (full) return toolText(result, 200, rich);
+	return toolText(result.split("\n").find((line) => line.trim() !== "") ?? "", 50, rich);
+}
+
+/** A word like a file name (`notes.md`, `src/a.ts:12`): Telegram would make it a link, as `.md` is a domain. */
+const FILE_WORD = /^(['"(\[]*)([\w~./-]*\w\.[A-Za-z][A-Za-z0-9]{0,7}(?::\d+)*)(['".,;:!?)\]]*)$/;
+
+/** A tool's text as one plain line (see `plain`), with file names as code, so they do not become links. */
+function toolText(text: string, max: number, rich = true): string {
+	const line = truncate(text.replace(/\s+/g, " ").trim(), max);
+	return line
+		.split(" ")
+		.map((word) => {
+			const file = word.includes("://") ? null : word.match(FILE_WORD);
+			if (file === null) return plain(word, max, rich);
+			const [, before = "", name = "", after = ""] = file;
+			return `${plain(before, max, rich)}${codeSpan(name)}${plain(after, max, rich)}`;
+		})
+		.join(" ");
 }
 
 function argsText(args: JsonValue | undefined, max: number): string {
@@ -132,10 +177,14 @@ export function stepsFold(trace: Trace, verbose: Verbose): string | undefined {
 	return fold(summary, body);
 }
 
+/** A call in the steps fold; in full mode with its arguments, and the tool's text below unless the bot has its own. */
 function stepItem(step: Step, verbose: Verbose): string {
 	if (verbose !== "full" || isSentFile(step)) return `- ${stepLine(step, "on")}`;
-	const head = `- ${icon(step)} ${codeSpan(`${step.name} ${argsText(step.args, 300)}`)}`;
-	return step.result === undefined || step.result === "" ? head : `${head}\n  - ${plain(step.result, 500)}`;
+	const brief = briefResult(step);
+	const call = `- ${icon(step)} ${codeSpan(`${step.name} ${argsText(step.args, 300)}`)}`;
+	const head = brief === undefined ? call : `${call} · ${brief}`;
+	if (brief !== undefined || step.result === undefined || step.result === "") return head;
+	return `${head}\n  - ${toolText(step.result, 500)}`;
 }
 
 function pathOf(step: Step): string | undefined {

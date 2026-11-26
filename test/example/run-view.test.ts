@@ -55,6 +55,32 @@ test("draft lines: full shows arguments and the longer result; markup in results
 	assert.equal(stepLine(step("b", "read", { path: "p" }, "pending", "old"), "on"), "⚙ `read: p`", "no result while pending");
 });
 
+test("file calls: the bot's own short result instead of the tool's text; errors and other tools keep the text", () => {
+	const of = (s: Step, file: Step["file"]) => stepLine({ ...s, ...(file === undefined ? {} : { file }) }, "on");
+	const wrote = step("w", "write", { path: "guide.md" }, "ok", "Successfully wrote to guide.md");
+	assert.equal(of(wrote, { lines: 149 }), "✅ `write: guide.md` · 149 lines");
+	assert.equal(of({ ...wrote, created: { lines: 1 } }, { lines: 1 }), "✅ `write: guide.md` · 1 line");
+	const edit = step("e", "edit", { path: "guide.md" }, "ok", "Successfully replaced 5 block(s) in guide.md.");
+	assert.equal(of(edit, { blocks: 5 }), "✅ `edit: guide.md` · 5 blocks");
+	const patch = "--- guide.md\n+++ guide.md\n@@ -1,2 +1,3 @@\n-a\n+b\n+c\n d\n";
+	assert.equal(of({ ...edit, patch }, { blocks: 1 }), "✅ `edit: guide.md` · +2 −1", "the diff's counts win");
+	const read = step("r", "read", { path: "guide.md" }, "ok", "# Guide: a home office");
+	assert.equal(of(read, { lines: 149, from: 1 }), "✅ `read: guide.md` · 149 lines");
+	assert.equal(of(read, { lines: 40, from: 41, total: 300 }), "✅ `read: guide.md` · lines 41-80 of 300");
+	assert.equal(of(read, { lines: 2000, from: 1, total: 2100 }), "✅ `read: guide.md` · lines 1-2000 of 2100");
+	const failed = step("f", "read", { path: "gone.md" }, "error", "ENOENT: no such file, open 'docs/gone.md'.");
+	assert.equal(of(failed, undefined), "❌ `read: gone.md` · ENOENT: no such file, open '`docs/gone.md`'.");
+	const other = step("o", "telegram_send_file", { path: "x" }, "error", "Not found: notes.md, see https://a.io/b.md.");
+	assert.equal(
+		stepLine(other, "on"),
+		"❌ `telegram_send_file: x` · Not found: `notes.md`, see https://a.io/b.md.",
+		"a file name is code, so it is no link; a URL stays as it is",
+	);
+	assert.equal(stepLine(other, "on", false), "❌ `telegram_send_file: x` · Not found: `notes.md`, see https://a.io/b.md.");
+	assert.match(stepsFold(traceOf({ ...edit, file: { blocks: 5 } }), "full") ?? "", /· 5 blocks\n\n<\/details>$/);
+	assert.match(stepsFold(traceOf(other), "full") ?? "", /`\n {2}- Not found: `notes\.md`, see/, "full: the text below");
+});
+
 test("steps fold: summary with count and names; calls in a row are one list, text between them a paragraph", () => {
 	const trace = traceOf(
 		"I look first.",
@@ -65,11 +91,11 @@ test("steps fold: summary with count and names; calls in a row are one list, tex
 	);
 	assert.equal(
 		stepsFold(trace, "on"),
-		"<details><summary>3 steps · read, write</summary>\n\nI look first.\n\n- ✅ `read: a.ts` · 1 line\n- ✅ `read: b.ts` · 2 lines\n\nNow I change it.\n\n- ✅ `write: a.ts` · Wrote a.ts\n\n</details>",
+		"<details><summary>3 steps · read, write</summary>\n\nI look first.\n\n- ✅ `read: a.ts` · 1 line\n- ✅ `read: b.ts` · 2 lines\n\nNow I change it.\n\n- ✅ `write: a.ts` · Wrote `a.ts`\n\n</details>",
 	);
 	assert.equal(stepsFold(trace, "off"), undefined);
 	assert.equal(stepsFold(traceOf("only text"), "on"), undefined, "no fold without calls");
-	assert.match(stepsFold(trace, "full") ?? "", /- ✅ `write \{"path":"a.ts"\}`\n {2}- Wrote a\.ts/);
+	assert.match(stepsFold(trace, "full") ?? "", /- ✅ `write \{"path":"a.ts"\}`\n {2}- Wrote `a\.ts`/);
 	const folded = stepsFold(traceOf(step("a", "read", {}, "ok", "x"), "text with </details> and <tg-button-row>"), "on") ?? "";
 	assert.equal(folded.match(/<\/details>/g)?.length, 1, "model text cannot close the fold");
 });
