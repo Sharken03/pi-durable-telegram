@@ -1,0 +1,27 @@
+# systemd user unit for orkestrator: the Telegram daemon, run from source with Node 24.
+#
+#   ops/deploy-pi.sh copies this file to ~/.config/systemd/user/ on the host and restarts the service.
+#   ~/.config/orkestrator/env holds the token and keys (template: ops/env.example, chmod 600).
+#   journalctl --user -u orkestrator -f
+#
+# There is no MemoryMax on purpose: the heap limit is in ExecStart, and OOMScoreAdjust makes the kernel
+# kill this service before anything else when the host runs out of memory.
+
+[Unit]
+Description=orkestrator (durable agent in Telegram)
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+ExecStart=/home/orkestrator/node/bin/node --max-old-space-size=128 --max-semi-space-size=2 /home/orkestrator/app/src/cli/main.ts run --env-file %h/.config/orkestrator/env
+Environment=NODE_ENV=production
+Restart=on-failure
+RestartSec=3
+# Exit codes 2 (bad config), 3 (data dir in use) and 4 (not logged in) need a person, not a restart loop.
+RestartPreventExitStatus=2 3 4
+OOMScoreAdjust=1000
+TimeoutStopSec=30
+KillMode=mixed
+
+[Install]
+WantedBy=default.target
