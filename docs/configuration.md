@@ -17,6 +17,7 @@ variables win over the file). Invalid values stop the daemon at start with one l
 | `PI_AUTH_FILE` | no | pi's `~/.pi/agent/auth.json` (or `$PI_CODING_AGENT_DIR/auth.json`) | Credentials file, shared with pi under pi's own lock. A `<PI_DATA_DIR>/auth.json` from an older version is used while pi has none |
 | `PI_INSTRUCTIONS` | no | `<PI_WORKDIR>/AGENTS.md` | Project instructions added to the system prompt; re-read when the file changes |
 | `PI_CONTEXT_CAP` | no | model window | Compact the context once it grows past this many tokens (in the background from three quarters of it) |
+| `PI_VISION_MODEL` | no | `deepseek/deepseek-flash` | `provider/model` that describes images and scanned PDF pages for a main model without image input, or `off`. Its cost counts in `/status`; another provider needs its own `login` |
 | `DEEPGRAM_API_KEY` | no | | Enables voice transcription |
 | `TELEGRAM_API_ROOT` | no | `https://api.telegram.org` | Bot API server (for a local Bot API server) |
 | `TELEGRAM_RICH` | no | `auto` | `auto`: answers are rich messages (tables, task lists, folds, buttons) streamed as native drafts with a stop button; `never`: Telegram HTML messages streamed by editing one message |

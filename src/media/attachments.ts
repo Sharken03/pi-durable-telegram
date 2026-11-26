@@ -85,6 +85,8 @@ export function attachmentNote(options: {
 	workdir: string;
 	path: string;
 	isImage: boolean;
+	/** A PDF or Office file the read tool shows as text. */
+	isDocument?: boolean;
 	caption: string | undefined;
 	note?: string;
 }): string {
@@ -92,6 +94,7 @@ export function attachmentNote(options: {
 		`[attachment] ${options.kind} saved to ${relative(options.workdir, options.path)} (absolute: ${options.path})`,
 	];
 	if (options.isImage) lines.push("View it with the read tool.");
+	else if (options.isDocument === true) lines.push("Read it with the read tool.");
 	return withTail(lines, options.note, options.caption);
 }
 

@@ -8,7 +8,7 @@ import {
 	type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { obj, opt, str } from "@earendil-works/pi-schema";
-import { probeImage } from "../agent/tools/image-probe.ts";
+import { isAnimatedGif, probeImage } from "../agent/tools/image-probe.ts";
 import { outsideText, realInside } from "../agent/tools/path-guard.ts";
 import { ChatInfo } from "../channel/docs.ts";
 import { truncate } from "../format/escape.ts";
@@ -18,6 +18,8 @@ import type { TelegramPort } from "./port.ts";
 
 export const UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024;
 const PHOTO_LIMIT_BYTES = 10 * 1024 * 1024;
+/** Start of a GIF read to find its second frame; the frame count needs the block structure, not only the header. */
+const GIF_SCAN_BYTES = 1024 * 1024;
 const CAPTION_LIMIT = 1024;
 
 type SendFileDeps = {
@@ -38,12 +40,15 @@ const parameters = obj(
 
 export const SEND_FILE_TOOL = "telegram_send_file";
 
-/** `telegram_send_file`: send a workspace file to the conversation's Telegram chat, as a photo when it is one. */
+/**
+ * `telegram_send_file`: send a workspace file to the conversation's Telegram chat, as a photo or an animation when it
+ * is one.
+ */
 export function createSendFileTool(deps: SendFileDeps): ToolRegistration {
 	const tool = defineTool({
 		name: SEND_FILE_TOOL,
 		description:
-			"Send a file from the workspace to the user in Telegram. Images are sent as photos, everything else as documents. Limit 50 MB.",
+			"Send a file from the workspace to the user in Telegram. Images are sent as photos, animated GIFs as animations, everything else as documents. Limit 50 MB.",
 		parameters,
 		replay: "unsafe",
 		execute: (args, api, context) => sendFile(args, api, context, deps),
@@ -72,8 +77,8 @@ async function sendFile(
 		);
 	}
 	const caption = args.caption === undefined ? undefined : truncate(args.caption, CAPTION_LIMIT);
-	const asPhoto = await isSendablePhoto(located.path, located.size);
-	return upload({ chatId: chat.chatId, path: located.path, size: located.size, caption, asPhoto }, deps, context);
+	const as = await sendKind(located.path, located.size);
+	return upload({ chatId: chat.chatId, path: located.path, size: located.size, caption, as }, deps, context);
 }
 
 type Located = { path: string; size: number };
@@ -92,27 +97,35 @@ async function locate(path: string, cwd: string | undefined, workdir: string): P
 	}
 }
 
-async function isSendablePhoto(path: string, size: number): Promise<boolean> {
-	if (size > PHOTO_LIMIT_BYTES) return false;
+type SendKind = "photo" | "animation" | "document";
+
+/**
+ * How Telegram shows the file: a photo (not GIF, at most 10 MB, sides at most 10000 px together), an animation (a
+ * GIF with more than one frame), else a document. A still GIF stays a document, as before.
+ */
+async function sendKind(path: string, size: number): Promise<SendKind> {
 	const handle = await open(path, "r");
 	try {
-		const header = Buffer.alloc(64 * 1024);
+		const header = Buffer.alloc(GIF_SCAN_BYTES);
 		const { bytesRead } = await handle.read(header, 0, header.length, 0);
-		const probe = probeImage(header.subarray(0, bytesRead));
-		if (probe === undefined || probe.mime === "image/gif") return false;
-		return (probe.width ?? 0) + (probe.height ?? 0) <= 10_000;
+		const bytes = header.subarray(0, bytesRead);
+		const probe = probeImage(bytes);
+		if (probe === undefined) return "document";
+		if (probe.mime === "image/gif") return isAnimatedGif(bytes) ? "animation" : "document";
+		const fits = size <= PHOTO_LIMIT_BYTES && (probe.width ?? 0) + (probe.height ?? 0) <= 10_000;
+		return fits ? "photo" : "document";
 	} finally {
 		await handle.close();
 	}
 }
 
-type Upload = { chatId: number; path: string; size: number; caption: string | undefined; asPhoto: boolean };
+type Upload = { chatId: number; path: string; size: number; caption: string | undefined; as: SendKind };
 
 async function upload(job: Upload, deps: SendFileDeps, context: Context): Promise<ToolExecutionResult> {
 	const port = deps.port();
 	const signal = context.abortSignal;
 	await port
-		.sendChatAction(job.chatId, job.asPhoto ? "upload_photo" : "upload_document", signal)
+		.sendChatAction(job.chatId, job.as === "photo" ? "upload_photo" : "upload_document", signal)
 		.catch(() => undefined);
 	try {
 		const kind = await sendOnce(port, job, signal);
@@ -127,13 +140,14 @@ async function sendOnce(
 	port: TelegramPort,
 	job: Upload,
 	signal: AbortSignal | undefined,
-): Promise<"photo" | "document"> {
-	if (job.asPhoto) {
+): Promise<SendKind> {
+	if (job.as !== "document") {
 		try {
-			await port.sendPhoto(job.chatId, job.path, job.caption, signal);
-			return "photo";
+			if (job.as === "photo") await port.sendPhoto(job.chatId, job.path, job.caption, signal);
+			else await port.sendAnimation(job.chatId, job.path, job.caption, signal);
+			return job.as;
 		} catch (error) {
-			// Telegram rejects some valid images as photos (dimensions, format); a document always works.
+			// Telegram rejects some valid images as photos or animations (dimensions, format); a document always works.
 			if (classifyTelegramError(error).kind !== "rejected") throw error;
 		}
 	}

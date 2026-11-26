@@ -16,7 +16,7 @@ export type FakeMessage = {
 	html: boolean;
 	rich?: boolean;
 	replyTo?: number;
-	kind: "text" | "photo" | "document";
+	kind: "text" | "photo" | "document" | "animation";
 	path?: string;
 	caption?: string;
 	/** A document sent from memory: its file name and text. */
@@ -149,6 +149,21 @@ export class FakeTelegram implements TelegramPort {
 		await this.#enter({ method: "sendDocument", chatId, text: path }, signal);
 		const id = this.#nextId++;
 		this.messages.set(id, { id, chatId, text: caption ?? "", html: false, kind: "document", path });
+		return id;
+	}
+
+	async sendAnimation(chatId: number, path: string, caption: string | undefined, signal?: AbortSignal): Promise<number> {
+		await this.#enter({ method: "sendAnimation", chatId, text: path }, signal);
+		const id = this.#nextId++;
+		this.messages.set(id, {
+			id,
+			chatId,
+			text: caption ?? "",
+			html: false,
+			kind: "animation",
+			path,
+			...(caption === undefined ? {} : { caption }),
+		});
 		return id;
 	}
 

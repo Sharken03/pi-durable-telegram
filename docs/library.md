@@ -32,7 +32,8 @@ const channel = createTelegramChannel({
 });
 
 const registry = createRegistry();
-registry.install(createWorkspaceTools({ workdir })); // read, write and edit only inside workdir
+// read, write and edit only inside workdir; rendered PDF pages and converted photos go to cacheDir
+registry.install(createWorkspaceTools({ workdir, cacheDir: "/home/me/.local/state/bot/file-cache" }));
 registry.install(createPromptExtension({ instructionsPath: `${workdir}/AGENTS.md`, rich: true }));
 registry.install(channel.extension);
 

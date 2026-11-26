@@ -1,5 +1,15 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
+
+const FALLBACK_MAX_BYTES = 3_932_160;
+
 export type ImageMime = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 export type ImageProbe = { readonly mime: ImageMime; readonly width?: number; readonly height?: number };
+
+/** Largest raw image a model accepts: 3/4 of its base64 limit, else 3.75 MB. */
+export function maxImageBytes(model: Model<Api> | undefined): number {
+	const base64 = model?.inputLimits?.images?.resize?.maxBytes;
+	return base64 === undefined ? FALLBACK_MAX_BYTES : Math.floor((base64 * 3) / 4);
+}
 
 /** Sniff an image type from its magic bytes and read its dimensions from the header when present. Never throws. */
 export function probeImage(bytes: Uint8Array): ImageProbe | undefined {
@@ -44,6 +54,48 @@ function pngSize(bytes: Uint8Array): Size {
 function gifSize(bytes: Uint8Array): Size {
 	if (bytes.length < 10) return undefined;
 	return { width: u16le(bytes, 6), height: u16le(bytes, 8) };
+}
+
+/**
+ * Whether a GIF has more than one frame, from its block structure in `bytes` (the start of the file). A first frame
+ * longer than `bytes` counts as one frame unless a NETSCAPE2.0 loop block came before it. Never throws.
+ */
+export function isAnimatedGif(bytes: Uint8Array): boolean {
+	if (!startsWith(bytes, [0x47, 0x49, 0x46, 0x38]) || bytes.length < 13) return false;
+	let at = 13 + colorTableBytes(bytes[10] ?? 0);
+	let frames = 0;
+	while (at < bytes.length) {
+		const block = bytes[at];
+		if (block === 0x2c) {
+			frames += 1;
+			if (frames > 1) return true;
+			at = skipSubBlocks(bytes, at + 10 + colorTableBytes(bytes[at + 9] ?? 0) + 1);
+		} else if (block === 0x21) {
+			if (bytes[at + 1] === 0xff && String.fromCharCode(...bytes.subarray(at + 3, at + 14)) === "NETSCAPE2.0") {
+				return true;
+			}
+			at = skipSubBlocks(bytes, at + 2);
+		} else {
+			return false;
+		}
+	}
+	return false;
+}
+
+/** Bytes of a GIF colour table from a packed field: none unless bit 7 is set, else 3 * 2^(n+1). */
+function colorTableBytes(packed: number): number {
+	return (packed & 0x80) === 0 ? 0 : 3 * 2 ** ((packed & 0x07) + 1);
+}
+
+/** The offset after a chain of GIF data sub-blocks that starts at `at`. */
+function skipSubBlocks(bytes: Uint8Array, at: number): number {
+	let next = at;
+	while (next < bytes.length) {
+		const size = bytes[next] ?? 0;
+		next += 1 + size;
+		if (size === 0) return next;
+	}
+	return bytes.length;
 }
 
 function isWebp(bytes: Uint8Array): boolean {

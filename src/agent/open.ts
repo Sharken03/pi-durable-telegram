@@ -23,6 +23,7 @@ import { createEmptyAnswerExtension } from "./empty-answer.ts";
 import { createAgentModels, resolveModel, StartupError } from "./models.ts";
 import { createPromptExtension } from "./prompt.ts";
 import { createSettings } from "./settings.ts";
+import { createVisionFallback } from "./tools/vision.ts";
 import { createWorkspaceTools } from "./tools/workspace-tools.ts";
 
 export type Agent = {
@@ -47,9 +48,13 @@ export type OpenAgentDeps = {
 	readonly editRetryDelaysMs?: readonly number[];
 	readonly limits?: { readonly downloadBytes?: number; readonly uploadBytes?: number };
 	readonly now?: () => number;
+	/** Where file tools look up host programs (pdftotext, heif-dec); default the process PATH. */
+	readonly programPath?: string;
 };
 
 export const DATABASE_FILE = "durable.sqlite";
+/** Rendered PDF pages and converted images, inside the data directory. */
+export const CACHE_DIR = "file-cache";
 
 /**
  * Open the agent: models and auth check, the Telegram channel, the registry (workspace tools, prompt, empty-answer
@@ -98,7 +103,10 @@ export async function openAgent(config: Config, deps: OpenAgentDeps = {}): Promi
 	const env = deps.pluginEnv ?? process.env;
 	// The model reads a skill's SKILL.md where the skill lies: the skill folders may be read, never written.
 	const readRoots = config.plugins.includes("skills") ? skillRoots({ env, workdir: config.workdir }) : [];
-	registry.install(createWorkspaceTools({ workdir: config.workdir, readRoots }));
+	const cacheDir = join(config.dataDir, CACHE_DIR);
+	const vision = config.visionModel === undefined ? undefined : createVisionFallback(config.visionModel, models);
+	const extra = optional({ programPath: deps.programPath, vision });
+	registry.install(createWorkspaceTools({ workdir: config.workdir, readRoots, cacheDir, ...extra }));
 	registry.install(
 		createPromptExtension({ instructionsPath: config.instructionsPath, rich: config.telegramRich === "auto" }),
 	);
