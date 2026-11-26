@@ -183,11 +183,13 @@ test("write diff: one hunk with three context lines, new and emptied files, unde
 	assert.equal(linePatch("same.txt", "x\n", "x\n"), undefined);
 });
 
-test("footer: model, context share and time; unknown parts are left out", () => {
+test("footer: model, effort, preset, context share and time; unknown parts and effort off are left out", () => {
 	const trace: Trace = { ...emptyTrace(), model: "deepseek-v4-pro", contextTokens: 2560, startedAt: 1000, endedAt: 66_000 };
 	assert.equal(footerLine(trace, 128_000), "_deepseek-v4-pro · 2% · 1m 5s_");
 	assert.equal(footerLine({ ...trace, endedAt: 3400 }, undefined), "_deepseek-v4-pro · 2s_");
 	assert.equal(footerLine(emptyTrace(), 1000), undefined);
+	assert.equal(footerLine({ ...trace, effort: "high", preset: "smart" }, undefined), "_deepseek-v4-pro · high (smart) · 1m 5s_");
+	assert.equal(footerLine({ ...trace, effort: "off", preset: "my_fast" }, undefined), "_deepseek-v4-pro (my\\_fast) · 1m 5s_");
 });
 
 test("reasoning fold: hidden by default; shown above the answer with /reasoning show", () => {

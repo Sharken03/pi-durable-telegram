@@ -1,6 +1,7 @@
 import { BACKGROUND_CONTEXT as BG } from "@earendil-works/chord/context";
 import type { Usage } from "@earendil-works/pi-ai";
 import { InboxDoc, LiveDoc, UsageDoc, type UsageState } from "@earendil-works/pi-durable";
+import { presetFor } from "../../agent/choices.ts";
 import { contextTokens } from "../../status/context-usage.ts";
 import { contextLimit, formatStatus, type UsageTotals } from "../../status/format-status.ts";
 import { recordKey } from "../intake.ts";
@@ -27,7 +28,7 @@ async function authLabel(scope: MessageScope, provider: string): Promise<string>
 		: `${check.type}${check.source === undefined ? "" : ` (${check.source})`}`;
 }
 
-/** /status: model, thinking, auth, busy state, queue, context use and spend. */
+/** /status: model, thinking, preset, auth, busy state, queue, context use and spend. */
 export async function runStatus(scope: MessageScope): Promise<void> {
 	if (!(await recordKey(scope.conversation, scope.key, BG, scope.updateId))) return;
 	const { harness, models } = scope.rt;
@@ -40,6 +41,7 @@ export async function runStatus(scope: MessageScope): Promise<void> {
 		version: scope.rt.version,
 		model: `${model.provider}/${model.modelId}`,
 		thinking: agent.thinkingLevel,
+		preset: presetFor(scope.rt.catalog, { ...model, effort: agent.thinkingLevel })?.name,
 		auth: await authLabel(scope, model.provider),
 		busy: live?.run !== undefined,
 		tool: live?.tools?.find((slot) => slot.status === "running")?.name,

@@ -6,6 +6,7 @@ import { type ConversationId, createRegistry, Harness } from "@earendil-works/pi
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { FileCredentialStore } from "../auth/credential-store.ts";
+import { RESERVED } from "../channel/commands/list.ts";
 import { createTelegramChannel, type TelegramChannel } from "../channel/create.ts";
 import type { Config } from "../config/schema.ts";
 import { createDeepgramStt } from "../media/deepgram.ts";
@@ -16,6 +17,7 @@ import type { FatalHandler } from "../runtime/fatal.ts";
 import { errorSummary, type Logger, silentLogger } from "../runtime/log.ts";
 import { ensurePrivateDir, makePrivate } from "../runtime/private-dir.ts";
 import type { TelegramPort } from "../telegram/port.ts";
+import { buildCatalog, parseRef, providersOf } from "./choices.ts";
 import { createEmptyAnswerExtension } from "./empty-answer.ts";
 import { createAgentModels, resolveModel, StartupError } from "./models.ts";
 import { createPromptExtension } from "./prompt.ts";
@@ -61,12 +63,22 @@ export async function openAgent(config: Config, deps: OpenAgentDeps = {}): Promi
 	if ((await models.checkAuth(config.provider)) === undefined) {
 		throw new StartupError(`not logged in: run \`pi-durable-telegram login ${config.provider}\``, 4);
 	}
+	const { catalog, warnings } = await buildCatalog({
+		fallback: { ...ref, effort: config.thinkingLevel },
+		choices: config.modelChoices,
+		presets: config.presets,
+		reserved: RESERVED,
+		getModel: (provider, modelId) => models.getModel(provider, modelId),
+		hasAuth: async (provider) => (await models.checkAuth(provider)) !== undefined,
+	});
+	for (const warning of warnings) log.warn("model_choice_skipped", { reason: warning });
 	const channel = createTelegramChannel({
 		botToken: config.botToken,
 		allowedUserIds: config.allowedUserIds,
 		workdir: config.workdir,
 		model: ref,
 		thinkingLevel: config.thinkingLevel,
+		catalog,
 		apiRoot: config.telegramApiRoot,
 		rich: config.telegramRich === "auto",
 		log,
@@ -116,7 +128,14 @@ export async function openAgent(config: Config, deps: OpenAgentDeps = {}): Promi
 		{
 			models,
 			registry,
-			settings: createSettings({ ...optional({ contextCap: config.contextCap }), contextWindow: model.contextWindow }),
+			settings: createSettings({
+				...optional({ contextCap: config.contextCap }),
+				contextWindow: model.contextWindow,
+				windowOf: (key) => {
+					const parts = parseRef(key);
+					return parts === undefined ? undefined : models.getModel(parts.provider, parts.modelId)?.contextWindow;
+				},
+			}),
 			env: (target) => new NodeExecutionEnv({ cwd: target.cwd ?? config.workdir }),
 			onReport: (report) => log.warn("harness_report", { kind: report.kind, error: errorSummary(report.error) }),
 			...optional({ now: deps.now }),
@@ -133,7 +152,8 @@ function optional<T extends Record<string, unknown>>(values: T): Partial<T> {
 
 async function defaultModels(config: Config, authContext: AuthContext | undefined): Promise<MutableModels> {
 	const credentials = new FileCredentialStore(config.authFile);
-	return createAgentModels({ provider: config.provider, credentials, ...optional({ authContext }) });
+	const extra = providersOf(config.provider, config.modelChoices, config.presets);
+	return createAgentModels({ provider: config.provider, extra, credentials, ...optional({ authContext }) });
 }
 
 function sttFor(config: Config): Stt | undefined {

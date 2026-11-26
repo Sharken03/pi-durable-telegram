@@ -226,5 +226,12 @@ export function blockUntilAborted(signal: AbortSignal | undefined): Promise<neve
 
 /** An answer without its footer line (`_faux-1 · 3% · 2s_`, in HTML `<i>…</i>`), which depends on timing. */
 export function withoutFooter(text: string): string {
-	return text.replace(/\n\n_faux-1(?: · [^\n]*)?_$|\n\n<i>faux-1(?: · [^\n<]*)?<\/i>$/, "");
+	return text.replace(/\n\n_faux-[^\n]*_$|\n\n<i>faux-[^\n<]*<\/i>$/, "");
+}
+
+/** A message's buttons as the `reply_markup` Telegram sends with a tap. */
+export function markupOf(message: FakeMessage | undefined) {
+	const rows = message?.buttons ?? [];
+	const keyboard = rows.map((row) => row.map((button) => ({ text: button.text, callback_data: button.data })));
+	return { inline_keyboard: keyboard };
 }

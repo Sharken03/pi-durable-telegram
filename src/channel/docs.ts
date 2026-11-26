@@ -1,4 +1,5 @@
 import type { JsonValue } from "@earendil-works/chord";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { defineDoc } from "@earendil-works/pi-durable";
 
 /** Telegram chat id → durable conversation id; one conversation per allowed private chat. */
@@ -108,8 +109,13 @@ export const VERBOSE_LEVELS: readonly Verbose[] = ["off", "on", "full"];
 export type ChatView = { verbose: Verbose; reasoning: boolean };
 export const DEFAULT_VIEW: ChatView = { verbose: "on", reasoning: false };
 
-/** Per-chat output settings set by /verbose and /reasoning; absent fields take `DEFAULT_VIEW`. */
-export const ChatSettings = defineDoc<{ verbose?: Verbose; reasoning?: boolean }>({
+/**
+ * Per-chat settings: output (/verbose, /reasoning; absent fields take `DEFAULT_VIEW`) and the model and effort level
+ * the user chose (/model, /think, a preset; absent: the configured default).
+ */
+export type StoredSettings = { verbose?: Verbose; reasoning?: boolean; model?: string; effort?: ModelThinkingLevel };
+
+export const ChatSettings = defineDoc<StoredSettings>({
 	kind: "tg.settings",
 	version: 1,
 	checkpointWhen: () => false,
@@ -120,12 +126,24 @@ export const ChatSettings = defineDoc<{ verbose?: Verbose; reasoning?: boolean }
 });
 
 /** The settings of a chat with the defaults filled in. */
-export function viewOf(settings: { verbose?: Verbose; reasoning?: boolean } | null | undefined): ChatView {
+export function viewOf(settings: StoredSettings | null | undefined): ChatView {
 	return {
 		verbose: settings?.verbose ?? DEFAULT_VIEW.verbose,
 		reasoning: settings?.reasoning ?? DEFAULT_VIEW.reasoning,
 	};
 }
+
+/**
+ * How often each model (`m:<provider/model>`) and preset (`p:<name>`) was chosen, in all chats: the model panel and
+ * the command menu list the most used first.
+ */
+export const ModelUse = defineDoc<{ counts: Record<string, number> }>({
+	kind: "tg.model-use",
+	version: 1,
+	checkpointWhen: () => false,
+	scope: "session",
+	initial: () => ({ counts: {} }),
+});
 
 /** A failed request, by the message id of its error message: the Retry button sends `content` again. */
 export type RetryRecord = { content: JsonValue; replyTo?: number };

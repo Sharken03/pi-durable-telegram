@@ -7,7 +7,7 @@ import {
 	type Harness,
 	type ModelRef,
 } from "@earendil-works/pi-durable";
-import { ChatInfo, ChatMap } from "./docs.ts";
+import { ChatInfo, ChatMap, ChatSettings, type StoredSettings } from "./docs.ts";
 
 export type AgentDefaults = {
 	readonly model: ModelRef;
@@ -15,15 +15,22 @@ export type AgentDefaults = {
 	readonly cwd: string;
 };
 
+/** The model and level of a chat's stored choice, checked against the models now; undefined: use the defaults. */
+export type StoredChoice = (
+	settings: StoredSettings,
+) => { readonly model: ModelRef; readonly thinkingLevel: ModelThinkingLevel } | undefined;
+
 /** One durable conversation per Telegram chat, created on first contact in one commit. */
 export class ConversationDirectory {
 	readonly #harness: Harness;
 	readonly #defaults: AgentDefaults;
+	readonly #chosen: StoredChoice;
 	readonly #cache = new Map<number, ConversationId>();
 
-	constructor(harness: Harness, defaults: AgentDefaults) {
+	constructor(harness: Harness, defaults: AgentDefaults, chosen: StoredChoice = () => undefined) {
 		this.#harness = harness;
 		this.#defaults = defaults;
+		this.#chosen = chosen;
 	}
 
 	async get(chatId: number, context: Context): Promise<Conversation> {
@@ -52,7 +59,10 @@ export class ConversationDirectory {
 		}, context);
 	}
 
-	/** Apply the configured model, thinking level and working directory to existing chats (env changes after restart). */
+	/**
+	 * Apply the configured working directory to existing chats, and the model and thinking level: the chat's stored
+	 * choice when it is still usable, else the configured default (env changes after restart).
+	 */
 	async reconfigureAll(context: Context): Promise<number> {
 		const map = await this.#harness.snapshot(ChatMap, context);
 		let changed = 0;
@@ -65,7 +75,9 @@ export class ConversationDirectory {
 
 	async #reconfigure(conversation: Conversation, context: Context): Promise<boolean> {
 		const agent = await conversation.agent(context);
-		const { model, thinkingLevel, cwd } = this.#defaults;
+		const settings = await this.#harness.snapshot(ChatSettings, conversation.id, context);
+		const { cwd } = this.#defaults;
+		const { model, thinkingLevel } = (settings === undefined ? undefined : this.#chosen(settings)) ?? this.#defaults;
 		const same =
 			agent.model?.provider === model.provider &&
 			agent.model.modelId === model.modelId &&

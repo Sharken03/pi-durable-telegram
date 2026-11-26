@@ -322,10 +322,12 @@ function uniqueName(name: string, taken: Set<string>): string {
 	return candidate;
 }
 
-/** `model · context % · time`; parts that are not known are left out. */
+/** `model · effort (preset) · context % · time`; parts that are not known are left out, and the effort "off". */
 export function footerLine(trace: Trace, limit: number | undefined): string | undefined {
 	const parts: string[] = [];
-	if (trace.model !== undefined) parts.push(plain(trace.model, 60));
+	const effort = trace.effort === undefined || trace.effort === "off" ? "" : ` · ${plain(trace.effort, 10)}`;
+	const preset = trace.preset === undefined ? "" : ` (${plain(trace.preset, 32)})`;
+	if (trace.model !== undefined) parts.push(`${plain(trace.model, 60)}${effort}${preset}`);
 	if (trace.contextTokens !== undefined && limit !== undefined && limit > 0)
 		parts.push(`${Math.round((trace.contextTokens / limit) * 100)}%`);
 	if (trace.startedAt !== undefined && trace.endedAt !== undefined && trace.endedAt >= trace.startedAt)

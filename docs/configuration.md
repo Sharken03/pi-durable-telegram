@@ -10,6 +10,8 @@ variables win over the file). Invalid values stop the daemon at start with one l
 | `PI_PROVIDER` | no | pi's default, else `anthropic` | pi-ai provider id |
 | `PI_MODEL` | no | pi's default, else `claude-opus-5-5` | Model id of the provider |
 | `PI_THINKING` | no | pi's default, else `high` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`; checked against the model |
+| `PI_MODEL_CHOICES` | no | `PI_MODEL` only | Comma-separated `provider/model` models the `/model` panel offers. A model of a provider without a key is left out (a warning in the log) |
+| `PI_PRESETS` | no | none | Comma-separated `name=provider/model:level`. Each preset is a command (`/fast`) and a panel button; names are `a-z`, `0-9` and `_`, at most 32. A level the model does not support becomes the nearest lower one |
 | `PI_WORKDIR` | no | current directory | The agent's working directory |
 | `PI_DATA_DIR` | no | `$XDG_STATE_HOME/pi-durable-telegram` or `~/.local/state/pi-durable-telegram` | SQLite storage and lock |
 | `PI_AUTH_FILE` | no | pi's `~/.pi/agent/auth.json` (or `$PI_CODING_AGENT_DIR/auth.json`) | Credentials file, shared with pi under pi's own lock. A `<PI_DATA_DIR>/auth.json` from an older version is used while pi has none |

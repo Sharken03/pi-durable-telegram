@@ -1,4 +1,5 @@
 import type { JsonValue } from "@earendil-works/chord";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { Harness, ModelRef } from "@earendil-works/pi-durable";
 import type { ChatView } from "../channel/docs.ts";
 import type { FatalHandler } from "../runtime/fatal.ts";
@@ -64,4 +65,6 @@ export type DeliveryDeps = {
 	readonly editRetryDelaysMs?: readonly number[];
 	/** The context limit of a model (the cap or its window), for the answer's footer. */
 	readonly contextLimit?: (provider: string, modelId: string) => number | undefined;
+	/** The preset of a model and effort level, for the answer's footer. */
+	readonly presetName?: (provider: string, modelId: string, effort: ModelThinkingLevel) => string | undefined;
 };

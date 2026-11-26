@@ -42,9 +42,13 @@ export class StartupError extends Error {
 	}
 }
 
-/** Models with the configured provider registered and credentials from `credentials`. */
+/**
+ * Models with the configured provider registered, and the `extra` providers the model panel offers, and credentials
+ * from `credentials`. An unknown configured provider throws; an unknown extra one is left out (the panel warns).
+ */
 export async function createAgentModels(options: {
 	readonly provider: string;
+	readonly extra?: readonly string[];
 	readonly credentials: CredentialStore;
 	readonly authContext?: AuthContext;
 }): Promise<MutableModels> {
@@ -56,6 +60,11 @@ export async function createAgentModels(options: {
 		...(options.authContext === undefined ? {} : { authContext: options.authContext }),
 	});
 	models.setProvider(provider);
+	for (const id of options.extra ?? []) {
+		if (id === options.provider) continue;
+		const extra = await loadProvider(id);
+		if (extra !== undefined) models.setProvider(extra);
+	}
 	return models;
 }
 

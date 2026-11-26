@@ -1,4 +1,5 @@
 import type { Context } from "@earendil-works/chord";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import {
 	AssistantEntry,
 	type ConversationId,
@@ -115,10 +116,12 @@ async function renderAnswer(job: Job, state: SendState, outcome: Extract<Outcome
 	if (state.endedAt !== undefined) trace.endedAt = state.endedAt;
 	const answer = finalReplyText(entry?.model?.[0]);
 	const empty = answer === undefined && (!rich || stepsOf(trace).length === 0);
-	const limit =
-		trace.provider === undefined || trace.model === undefined
-			? undefined
-			: job.deps.contextLimit?.(trace.provider, trace.model);
+	const { provider, model } = trace;
+	const known = provider !== undefined && model !== undefined;
+	const limit = known ? job.deps.contextLimit?.(provider, model) : undefined;
+	const effort = (trace.effort ?? "off") as ModelThinkingLevel;
+	const preset = known ? job.deps.presetName?.(provider, model, effort) : undefined;
+	if (preset !== undefined) trace.preset = preset;
 	const composed = composeAnswer({
 		answer: empty ? EMPTY_TEXT : answer,
 		trace,

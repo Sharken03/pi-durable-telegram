@@ -39,3 +39,16 @@ test("PI_CONTEXT_CAP: a large cap keeps pi-durable's defaults; no cap changes no
 	assert.equal(createSettings({ contextWindow: 1_000_000 }).compaction, undefined);
 	assert.equal(createSettings({ contextCap: 2_000_000, contextWindow: 1_000_000 }).compaction, undefined);
 });
+
+test("PI_CONTEXT_CAP: each model gets thresholds for its own window, so a chat can switch models", () => {
+	const windows: Record<string, number> = { "a/big": 1_000_000, "b/small": 100_000 };
+	const settings = createSettings({ contextCap: 128_000, contextWindow: 1_000_000, windowOf: (ref) => windows[ref] });
+	assert.ok(settings.compaction !== undefined);
+	const { modelOverrides, ...policy } = settings.compaction;
+	// pi-durable lays the override of `provider/modelId` over the harness-wide policy (compaction.js).
+	const resolved = (ref: string) => ({ ...DEFAULTS, ...policy, ...modelOverrides?.[ref] });
+	assert.deepEqual(resolved("a/big"), { reserveTokens: 872_000, keepRecentTokens: 20000, backgroundTokens: 32000 });
+	assert.deepEqual(resolved("b/small"), DEFAULTS, "a window under the cap keeps pi-durable's defaults");
+	assert.equal(modelOverrides?.["c/unknown"], undefined);
+	assert.deepEqual(resolved("c/unknown"), resolved("a/big"), "an unknown model keeps the default model's policy");
+});
