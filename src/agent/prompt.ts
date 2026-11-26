@@ -54,7 +54,7 @@ async function readCapped(path: string): Promise<string> {
 
 /** The model the agent runs on, so it can answer which model it is. */
 export function modelText(model: { readonly provider: string; readonly modelId: string } | undefined): string {
-	return model === undefined ? "Your model is not known." : `You run on ${model.provider}/${model.modelId}.`;
+	return model === undefined ? "Your model is not known." : `You run on ${model.provider}/${model.modelId}. This line is current and correct: when the user asks which model you are, name this model.`;
 }
 
 function wrap(path: string, body: string): string {

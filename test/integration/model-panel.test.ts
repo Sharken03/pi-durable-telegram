@@ -246,8 +246,8 @@ test("T-model-known: the system prompt names the model, also after a switch; eff
 	await send(t, port, 3, "which model");
 	await send(t, port, 4, "/t high");
 	await send(t, port, 5, "and now");
-	assert.equal(seen[0]?.model, "<model>\nYou run on faux/faux-1.\n</model>");
-	assert.equal(seen[1]?.model, "<model>\nYou run on faux/faux-think.\n</model>", "the new model after a switch");
+	assert.equal(seen[0]?.model, "<model>\nYou run on faux/faux-1. This line is current and correct: when the user asks which model you are, name this model.\n</model>");
+	assert.equal(seen[1]?.model, "<model>\nYou run on faux/faux-think. This line is current and correct: when the user asks which model you are, name this model.\n</model>", "the new model after a switch");
 	assert.notEqual(seen[1]?.system, seen[0]?.system);
 	assert.equal(seen[2]?.system, seen[1]?.system, "an effort switch leaves the system prompt as it was");
 	assert.match(seen[0]?.user ?? "", /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}[^\]·]*\]\nhello$/, "faux-1: no effort, no preset");
