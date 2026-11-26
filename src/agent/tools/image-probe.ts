@@ -56,6 +56,48 @@ function gifSize(bytes: Uint8Array): Size {
 	return { width: u16le(bytes, 6), height: u16le(bytes, 8) };
 }
 
+/**
+ * Whether a GIF has more than one frame, from its block structure in `bytes` (the start of the file). A first frame
+ * longer than `bytes` counts as one frame unless a NETSCAPE2.0 loop block came before it. Never throws.
+ */
+export function isAnimatedGif(bytes: Uint8Array): boolean {
+	if (!startsWith(bytes, [0x47, 0x49, 0x46, 0x38]) || bytes.length < 13) return false;
+	let at = 13 + colorTableBytes(bytes[10] ?? 0);
+	let frames = 0;
+	while (at < bytes.length) {
+		const block = bytes[at];
+		if (block === 0x2c) {
+			frames += 1;
+			if (frames > 1) return true;
+			at = skipSubBlocks(bytes, at + 10 + colorTableBytes(bytes[at + 9] ?? 0) + 1);
+		} else if (block === 0x21) {
+			if (bytes[at + 1] === 0xff && String.fromCharCode(...bytes.subarray(at + 3, at + 14)) === "NETSCAPE2.0") {
+				return true;
+			}
+			at = skipSubBlocks(bytes, at + 2);
+		} else {
+			return false;
+		}
+	}
+	return false;
+}
+
+/** Bytes of a GIF colour table from a packed field: none unless bit 7 is set, else 3 * 2^(n+1). */
+function colorTableBytes(packed: number): number {
+	return (packed & 0x80) === 0 ? 0 : 3 * 2 ** ((packed & 0x07) + 1);
+}
+
+/** The offset after a chain of GIF data sub-blocks that starts at `at`. */
+function skipSubBlocks(bytes: Uint8Array, at: number): number {
+	let next = at;
+	while (next < bytes.length) {
+		const size = bytes[next] ?? 0;
+		next += 1 + size;
+		if (size === 0) return next;
+	}
+	return bytes.length;
+}
+
 function isWebp(bytes: Uint8Array): boolean {
 	return startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
 }

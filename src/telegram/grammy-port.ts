@@ -67,6 +67,12 @@ export function createGrammyPort(options: GrammyPortOptions): TelegramPort {
 				"sendDocument",
 				async () => (await api.sendDocument(chatId, new InputFile(path), captionExtra(caption), gs(signal))).message_id,
 			),
+		sendAnimation: (chatId, path, caption, signal) =>
+			guard(
+				"sendAnimation",
+				async () =>
+					(await api.sendAnimation(chatId, new InputFile(path), captionExtra(caption), gs(signal))).message_id,
+			),
 		sendTextDocument: (chatId, fileName, text, o: DocumentOptions, signal) =>
 			guard("sendDocument", async () => {
 				const file = new InputFile(Buffer.from(text, "utf8"), fileName);

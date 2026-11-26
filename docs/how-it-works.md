@@ -42,18 +42,20 @@ edited about once per second) and is then sent as a rich message.
   API limit) are saved to `<workdir>/inbox/YYYY-MM-DD/`; the agent gets the path and decides what to do with the
   file (it can look at images with `read`). A file that is too big or fails to download is still reported to the
   agent with its name, size and the reason. A location, contact, poll or any other message without text or a file
-  arrives as its own fields. The agent sends files back with the `telegram_send_file` tool (up to 50 MB).
+  arrives as its own fields. The agent sends files back with the `telegram_send_file` tool (up to 50 MB): images as
+  photos, animated GIFs as animations, other files as documents.
 - **Voice.** Voice messages, audio and video notes are transcribed with [Deepgram](https://deepgram.com) (`nova-3`,
   automatic language detection) when `DEEPGRAM_API_KEY` is set. Without a key, or when transcription fails, the audio
   is saved like any other file and the agent is told why there is no transcript.
 - **Tools.** `read`, `write` and `edit`, working in `PI_WORKDIR` with the service user's access. There is no shell
-  tool. `read` knows files by content: images are shown as pictures; a PDF gives its page count and the text of up to
-  20 pages per call (`pages`, such as `"3-5"`), and pages without text are rendered as pictures. PDF support runs
-  `pdfinfo`, `pdftotext` and `pdftoppm` (Debian package `poppler-utils`) through `nice`, with fixed arguments. HEIC,
-  HEIF and AVIF photos are converted to JPEG with `heif-dec` (Debian package `libheif-examples`) in the same way.
-  Word, Excel and PowerPoint files (docx, xlsx, pptx) are shown as Markdown by a built-in ZIP reader that unpacks at
-  most 8 MB of XML per part and 16 MB per call; old binary files (doc, xls, ppt) get a short error. A
-  model without image input gets images and such pages as text from the vision model in `PI_VISION_MODEL`.
+  tool. `read` knows files by content: images are shown as pictures (an animated GIF as it is, so the model may see
+  only its first frame); a PDF gives its page count and the text of up to 20 pages per call (`pages`, such as
+  `"3-5"`), and pages without text are rendered as pictures. PDF support runs `pdfinfo`, `pdftotext` and `pdftoppm`
+  (Debian package `poppler-utils`) through `nice`, with fixed arguments. HEIC, HEIF and AVIF photos are converted to
+  JPEG with `heif-dec` (Debian package `libheif-examples`) in the same way. Word, Excel and PowerPoint files (docx,
+  xlsx, pptx) are shown as Markdown by a built-in ZIP reader that unpacks at most 8 MB of XML per part and 16 MB per
+  call; old binary files (doc, xls, ppt) get a short error. A model without image input gets images and such pages as
+  text from the vision model in `PI_VISION_MODEL`.
 - **Instructions.** `<workdir>/AGENTS.md` is added to the system prompt and re-read when it changes: tell the agent
   what lives on the server and what it must not touch.
 - **Any pi-ai model.** The model pi uses by default (`defaultProvider`, `defaultModel`, `defaultThinkingLevel` in

@@ -44,6 +44,8 @@ export interface TelegramPort {
 	sendChatAction(chatId: number, action: ChatAction, signal?: AbortSignal): Promise<void>;
 	sendPhoto(chatId: number, path: string, caption: string | undefined, signal?: AbortSignal): Promise<number>;
 	sendDocument(chatId: number, path: string, caption: string | undefined, signal?: AbortSignal): Promise<number>;
+	/** An animated GIF, which Telegram plays in the chat. */
+	sendAnimation(chatId: number, path: string, caption: string | undefined, signal?: AbortSignal): Promise<number>;
 	/** Send `text` as a UTF-8 file named `fileName` (an answer.md, a .diff), without writing it to disk. */
 	sendTextDocument(
 		chatId: number,

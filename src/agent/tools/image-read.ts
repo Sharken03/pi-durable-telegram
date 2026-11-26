@@ -18,7 +18,7 @@ import { heifBrand, isOle, isPdf, isZip } from "../../media/sniff.ts";
 import { ZipError } from "../../media/zip.ts";
 import type { FileCache, SourceId } from "./file-cache.ts";
 import { convertHeif, heifKind } from "./heif-read.ts";
-import { type ImageMime, type ImageProbe, maxImageBytes, probeImage } from "./image-probe.ts";
+import { type ImageMime, type ImageProbe, isAnimatedGif, maxImageBytes, probeImage } from "./image-probe.ts";
 import { readOffice } from "./office-read.ts";
 import { MAX_PAGES_PER_READ, type RenderedPage, readPdf } from "./pdf-read.ts";
 import { addUsage, type Description, type VisionFallback, type VisionImage } from "./vision.ts";
@@ -185,15 +185,19 @@ async function readImage(file: ImageFile, call: Call, from?: Original): Promise<
 			? `Image ${file.path} (${size})`
 			: `Image ${from.path} (${from.kind}, converted to JPEG: ${size})`;
 	const image: ImageRef = { path: file.path, mime };
+	// Models get the GIF as it is; most of them look at the first frame only.
+	const animated =
+		mime === "image/gif" && isAnimatedGif(file.header) ? " It is an animated GIF; only its first frame may show." : "";
 	const vision = fallbackFor(call);
-	if (vision === undefined) return success(`${head} is attached for viewing.`, [image]);
+	if (vision === undefined) return success(`${head} is attached for viewing.${animated}`, [image]);
 	const described = await describeFile(vision, image, "picture", call.context);
 	if (!described.ok) {
 		const why = `This model cannot view images, and the vision model ${vision.label} could not describe it`;
-		return success(`${head}. ${why}: ${described.reason}.`, [image]);
+		return success(`${head}.${animated} ${why}: ${described.reason}.`, [image]);
 	}
 	const intro = `This model cannot view images; the vision model ${vision.label} describes it:`;
-	return success(`${head}. ${intro}\n\n${described.text}`, [{ ...image, described: true }], described.usage);
+	const text = `${head}.${animated} ${intro}\n\n${described.text}`;
+	return success(text, [{ ...image, described: true }], described.usage);
 }
 
 async function readHeifFile(file: OpenedFile, kind: string, call: Call): Promise<ToolExecutionResult> {

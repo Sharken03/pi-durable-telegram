@@ -7,6 +7,7 @@ const NON_IDEMPOTENT = new Set([
 	"sendRichMessage",
 	"sendPhoto",
 	"sendDocument",
+	"sendAnimation",
 	"sendMediaGroup",
 	"copyMessage",
 	"forwardMessage",
