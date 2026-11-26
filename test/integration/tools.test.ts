@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -121,26 +122,36 @@ test("T-send-file-limits: missing, directory and oversized files are tool errors
 	assert.equal(port.created(CHAT).filter((m) => m.kind === "document").length, 1);
 });
 
-test("T-bash-env: the agent's shell sees neither secrets nor the service environment", async () => {
-	process.env.TELEGRAM_BOT_TOKEN = "999999:secret-token-value-that-must-not-leak";
-	process.env.LEAKY_SERVICE_VAR = "leak";
-	try {
-		const faux = newFaux();
-		let output = "";
-		faux.setResponses([
-			toolCall("bash", { command: "env" }),
-			observe((messages) => {
-				output = textOf(lastToolResult(messages));
-			}, fauxAssistantMessage("ok")),
-		]);
-		const { t, port } = await setup(faux);
-		await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "env"));
-		await waitFor(() => port.textsIn(CHAT).includes("ok"));
-		assert.match(output, /^PATH=/m);
-		assert.ok(!output.includes("secret-token"), "no bot token");
-		assert.ok(!output.includes("LEAKY_SERVICE_VAR"), "process env not inherited");
-	} finally {
-		delete process.env.TELEGRAM_BOT_TOKEN;
-		delete process.env.LEAKY_SERVICE_VAR;
+/** Tool names a request offers, from the system messages' tool changes. */
+function toolNames(messages: readonly Message[]): string[] {
+	const names = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== "system") continue;
+		for (const tool of message.toolsAdded ?? []) names.add(tool.name);
+		for (const tool of message.toolsRemoved ?? []) names.delete(tool.name);
 	}
+	return [...names];
+}
+
+test("T-no-bash: the agent has no shell tool; a bash call is an error and runs nothing", async () => {
+	const faux = newFaux();
+	const { t, port, work } = await setup(faux);
+	const marker = join(work, "ran");
+	let tools: string[] = [];
+	let seen: Seen | undefined;
+	faux.setResponses([
+		(context) => {
+			tools = toolNames(context.messages);
+			return toolCall("bash", { command: `touch ${marker}` });
+		},
+		observe((messages) => {
+			seen = inspect(messages);
+		}, fauxAssistantMessage("ok")),
+	]);
+	await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "run a command"));
+	await waitFor(() => port.textsIn(CHAT).includes("ok"));
+	assert.ok(["read", "write", "edit"].every((name) => tools.includes(name)), "file tools are offered");
+	assert.ok(!tools.includes("bash"), "no bash tool is offered");
+	assert.equal(seen?.isError, true);
+	assert.ok(!existsSync(marker), "the command did not run");
 });

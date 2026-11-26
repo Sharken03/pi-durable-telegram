@@ -56,7 +56,6 @@ export async function startTestAgent(options: {
 		log,
 		previewIntervalMs: 50,
 		onFatal: (reason) => fatal.push(reason),
-		shellEnv: { PATH: process.env.PATH, HOME: options.dir },
 		...options.deps,
 	});
 	await agent.channel.start(agent.harness, BG, { polling: false, plugins: agent.plugins.report });

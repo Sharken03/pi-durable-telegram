@@ -10,7 +10,7 @@ import {
 	toLlmContent,
 } from "@earendil-works/pi-mcp";
 import type { Schema } from "@earendil-works/pi-schema";
-import { buildSafeEnv } from "../agent/tools/bash.ts";
+import { buildSafeEnv } from "../agent/tools/safe-env.ts";
 import { errorSummary } from "../runtime/log.ts";
 import { packageVersion } from "../runtime/version.ts";
 import { expandPath, type PluginContext, withTimeout } from "./load.ts";
@@ -50,7 +50,7 @@ function transportFor(server: Server, ctx: PluginContext): McpTransport {
 		command: server.command,
 		args: ((server.args as unknown[] | undefined) ?? []).map((arg) => expand(arg, ctx.env)),
 		cwd: expandPath(typeof server.cwd === "string" ? server.cwd : ".", ctx),
-		// Like bash: no inherited secrets; a server gets a secret only when its config names it.
+		// No inherited secrets: a server gets a secret only when its config names it.
 		env: { ...buildSafeEnv(ctx.env), ...expandAll(server.env, ctx.env) },
 		inheritEnv: false,
 		stderr: "pipe",

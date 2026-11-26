@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildSafeEnv } from "../../src/agent/tools/bash.ts";
+import { buildSafeEnv } from "../../src/agent/tools/safe-env.ts";
 import { chooseOption, describe } from "../../src/auth/interaction.ts";
 import { isSecretName, scrubSecrets } from "../../src/config/scrub.ts";
 import { createLogger, formatLine } from "../../src/runtime/log.ts";
@@ -27,7 +27,7 @@ test("logger: one redacted line per event, level threshold", () => {
 	assert.equal(formatLine("warn", "x", { e: new Error("boom\nstack") }), 'warn x e="Error: boom"');
 });
 
-test("secrets are scrubbed from the environment and never reach bash", () => {
+test("secrets are scrubbed from the environment and never reach a child process", () => {
 	const env: Record<string, string | undefined> = {
 		TELEGRAM_BOT_TOKEN: "t",
 		DEEPGRAM_API_KEY: "d",

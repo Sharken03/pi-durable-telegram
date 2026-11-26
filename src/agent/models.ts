@@ -15,7 +15,7 @@ import { loadProvider } from "./providers.ts";
 
 /**
  * Auth context for pi-ai that reads provider variables from a snapshot taken before secrets were scrubbed from
- * `process.env`, so keys stay usable for the model but never reach the agent's shell.
+ * `process.env`, so keys stay usable for the model but never reach a child process.
  */
 export function createAuthContext(
 	secrets: Readonly<Record<string, string>>,

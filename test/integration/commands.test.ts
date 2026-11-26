@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { BACKGROUND_CONTEXT as BG } from "@earendil-works/chord/context";
@@ -153,31 +154,46 @@ test("T-stop-keeps-queue: /stop aborts the current run; the queued message is st
 	await waitFor(() => replyTo(port, 4) === "Nothing is running.");
 });
 
-test("T-stop-tool: /stop during a long bash kills the process", async () => {
+/** A plugin tool `slow` that writes `started`, then waits for its abort signal and writes `aborted`. */
+function slowToolPlugin(started: string, aborted: string): string {
+	return `import { writeFileSync } from "node:fs";
+export default () => ({
+	name: "ext-slow",
+	tools: [{
+		name: "slow",
+		description: "waits until aborted",
+		parameters: { type: "object", properties: {} },
+		execute: (_args, _api, context) => new Promise((resolve) => {
+			writeFileSync(${JSON.stringify(started)}, "started");
+			context.abortSignal?.addEventListener("abort", () => {
+				writeFileSync(${JSON.stringify(aborted)}, "aborted");
+				resolve({ output: [{ type: "text", text: "aborted" }], isError: true });
+			}, { once: true });
+		}),
+	}],
+});\n`;
+}
+
+test("T-stop-tool: /stop during a long tool call aborts the tool", async () => {
 	const faux = newFaux();
-	const { t, port, dir } = await setup(faux);
-	const pidFile = join(dir, "work", "pid");
-	faux.setResponses([
-		toolCall("bash", { command: `echo $$ > ${pidFile}; exec sleep 30` }),
-		fauxAssistantMessage("never"),
-	]);
+	const { dir, cleanup } = await tempDir();
+	cleanups.push(cleanup);
+	const work = join(dir, "work");
+	const started = join(work, "started");
+	const aborted = join(work, "aborted");
+	await mkdir(work, { recursive: true });
+	await writeFile(join(work, "slow.mjs"), slowToolPlugin(started, aborted));
+	const port = new FakeTelegram();
+	const t = await startTestAgent({ dir, faux, port, config: { PI_PLUGINS: "./slow.mjs" } });
+	cleanups.push(() => t.close());
+	assert.deepEqual(t.agent.plugins.report.loaded, ["./slow.mjs"]);
+	faux.setResponses([toolCall("slow", {}), fauxAssistantMessage("never")]);
 	await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "run it"));
-	await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, "utf8").trim() !== "", { what: "bash started" });
-	const pid = Number(readFileSync(pidFile, "utf8").trim());
-	assert.doesNotThrow(() => process.kill(pid, 0));
+	await waitFor(() => existsSync(started), { what: "tool started" });
+	assert.ok(!existsSync(aborted));
 	await t.agent.channel.handleUpdate(textUpdate(CHAT, 2, "/stop"));
 	await waitFor(() => replyTo(port, 2) === "Stopped.", { what: "stopped reply" });
-	await waitFor(
-		() => {
-			try {
-				process.kill(pid, 0);
-				return false;
-			} catch {
-				return true;
-			}
-		},
-		{ what: "process gone" },
-	);
+	await waitFor(() => existsSync(aborted), { what: "tool aborted" });
 	await sleep(100);
 	assert.ok(!port.textsIn(CHAT).includes("never"));
 });

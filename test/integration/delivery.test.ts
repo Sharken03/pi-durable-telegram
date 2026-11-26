@@ -229,7 +229,7 @@ test("INF-18: a busy message steers the current run at its next tool boundary", 
 	faux.setResponses([
 		async () => {
 			await release.promise;
-			return toolCall("bash", { command: "echo ready" });
+			return toolCall("write", { path: "ready.txt", content: "ready" });
 		},
 		(context) => {
 			seen = lastUserText(context.messages);

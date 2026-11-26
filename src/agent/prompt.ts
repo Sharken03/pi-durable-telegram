@@ -18,7 +18,7 @@ When the user has to choose (yes or no, a few options, the next step), end the a
 export function preambleText(workdir: string | undefined, rich = false): string {
 	return [
 		"You are a personal coding agent. The user talks to you through a private Telegram chat.",
-		`Your working directory is ${workdir ?? "the service's working directory"}. You have read, write, edit and bash tools with full access to it.`,
+		`Your working directory is ${workdir ?? "the service's working directory"}. You have read, write and edit tools with full access to it. You have no shell and cannot run commands.`,
 		"Files the user sends are saved under inbox/ in the working directory; the message tells you the path. View images with the read tool.",
 		"Use the telegram_send_file tool to send a file from the workspace to the user.",
 		rich ? RICH_ANSWERS : HTML_ANSWERS,

@@ -84,7 +84,7 @@ test("T-plugin-broken: broken plugins are skipped, logged, told once in chat and
 			await writeFiles({
 				[join(work, "throws.mjs")]: `export default () => { throw new Error("boom in factory"); };\n`,
 				[join(work, "tasks.mjs")]: `export default () => ({ name: "with-tasks", tasks: [{ name: "x" }] });\n`,
-				[join(work, "clash.mjs")]: pluginSource("bash", "replaced"),
+				[join(work, "clash.mjs")]: pluginSource("read", "replaced"),
 				[join(work, "good.mjs")]: pluginSource("good_tool", "good"),
 				[join(work, "again.mjs")]: pluginSource("good_tool", "again", "ext-again"),
 				[join(work, "badkey.mjs")]: sectionPlugin("badkey", "My Section"),
@@ -102,7 +102,7 @@ export default () => ({ name: "ext-dup", tools: [t, t] });\n`,
 	assert.match(reasons["./missing.mjs"] ?? "", /^did not load: not found: .*missing\.mjs$/);
 	assert.equal(reasons["./throws.mjs"], "did not load: boom in factory");
 	assert.equal(reasons["./tasks.mjs"], "did not load: plugins cannot define tasks");
-	assert.equal(reasons["./clash.mjs"], "did not load: the name bash is already taken");
+	assert.equal(reasons["./clash.mjs"], "did not load: the name read is already taken");
 	assert.equal(reasons["not a name!"], "did not load: not a plugin name or path");
 	assert.match(reasons["absent-pkg"] ?? "", /not installed: run npm install --prefix .*plugins absent-pkg/);
 	assert.equal(reasons["./again.mjs"], "did not load: the name good_tool is already taken");

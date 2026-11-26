@@ -114,7 +114,8 @@ test("T-helper-answer: the helper's final answer is the tool result; it has the 
 	assert.deepEqual(port.textsIn(CHAT), ['Parent got: 2, 3, 5 for "Name three primes"']);
 	const child = seen.filter((s) => s.role === "child");
 	assert.equal(child.length, 1);
-	assert.ok(child[0]?.tools.includes("bash") && child[0].tools.includes("telegram_send_file"), "full toolset");
+	assert.ok(child[0]?.tools.includes("read") && child[0].tools.includes("telegram_send_file"), "full toolset");
+	assert.ok(!child[0]?.tools.includes("bash"), "no shell");
 	assert.ok(!child[0]?.tools.includes("helper"), "no nesting");
 	assert.deepEqual([...new Set(seen.map((s) => s.model))], ["faux-1"], "both on the main model");
 	assert.equal((await children(t.agent.harness)).length, 1);

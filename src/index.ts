@@ -2,8 +2,8 @@ export { createAgentModels, createAuthContext, resolveModel, StartupError } from
 export { type Agent, type OpenAgentDeps, openAgent } from "./agent/open.ts";
 export { createPromptExtension } from "./agent/prompt.ts";
 export { createSettings } from "./agent/settings.ts";
-export { buildSafeEnv, createSafeBashTool } from "./agent/tools/bash.ts";
-export { createWorkspaceTools, type WorkspaceToolsOptions } from "./agent/tools/workspace-tools.ts";
+export { buildSafeEnv } from "./agent/tools/safe-env.ts";
+export { createWorkspaceTools } from "./agent/tools/workspace-tools.ts";
 export { createFileCredentialStore, FileCredentialStore } from "./auth/credential-store.ts";
 export { createHeadlessInteraction } from "./auth/interaction.ts";
 export {

@@ -20,7 +20,6 @@ import { createEmptyAnswerExtension } from "./empty-answer.ts";
 import { createAgentModels, resolveModel, StartupError } from "./models.ts";
 import { createPromptExtension } from "./prompt.ts";
 import { createSettings } from "./settings.ts";
-import { buildSafeEnv } from "./tools/bash.ts";
 import { createWorkspaceTools } from "./tools/workspace-tools.ts";
 
 export type Agent = {
@@ -39,8 +38,6 @@ export type OpenAgentDeps = {
 	readonly stt?: Stt;
 	readonly log?: Logger;
 	readonly onFatal?: FatalHandler;
-	/** Environment the agent's bash sees, before the allowlist filter; default `process.env`. */
-	readonly shellEnv?: Readonly<Record<string, string | undefined>>;
 	/** Environment plugins read, secrets included; default `process.env`. */
 	readonly pluginEnv?: Readonly<Record<string, string | undefined>>;
 	readonly previewIntervalMs?: number;
@@ -84,7 +81,7 @@ export async function openAgent(config: Config, deps: OpenAgentDeps = {}): Promi
 		}),
 	});
 	const registry = createRegistry();
-	registry.install(createWorkspaceTools({ env: buildSafeEnv(deps.shellEnv ?? process.env) }));
+	registry.install(createWorkspaceTools());
 	registry.install(
 		createPromptExtension({ instructionsPath: config.instructionsPath, rich: config.telegramRich === "auto" }),
 	);
