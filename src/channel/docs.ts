@@ -152,3 +152,38 @@ export function rememberRetry(
 	doc.messages[String(messageId)] = record;
 	while (doc.order.length > RETRIES_RING_SIZE) delete doc.messages[String(doc.order.shift())];
 }
+
+/** A diff file the Full diff button under an answer sends. */
+export type DiffFile = { name: string; text: string };
+
+/** The diffs behind the Full diff buttons, by the message id of the answer they are under. */
+export const Diffs = defineDoc<{ messages: Record<string, DiffFile[]>; order: number[] }>({
+	kind: "tg.diffs",
+	version: 1,
+	checkpointWhen: () => false,
+	scope: "conversation",
+	history: "latest",
+	fork: "initial",
+	initial: () => ({ messages: {}, order: [] }),
+});
+
+export const DIFFS_RING_SIZE = 10;
+/** The kept diffs of all answers together stay under this many characters; the oldest go first. */
+export const DIFFS_MAX_CHARS = 1_000_000;
+
+/** Keep the diffs under message `messageId`, dropping the oldest messages beyond the ring size or the size cap. */
+export function rememberDiffs(
+	doc: { messages: Record<string, DiffFile[]>; order: number[] },
+	messageId: number,
+	files: DiffFile[],
+): void {
+	if (!Object.hasOwn(doc.messages, String(messageId))) doc.order.push(messageId);
+	doc.messages[String(messageId)] = files;
+	const size = (id: number) => (doc.messages[String(id)] ?? []).reduce((sum, file) => sum + file.text.length, 0);
+	let total = doc.order.reduce((sum, id) => sum + size(id), 0);
+	while (doc.order.length > DIFFS_RING_SIZE || (doc.order.length > 1 && total > DIFFS_MAX_CHARS)) {
+		const oldest = doc.order.shift() as number;
+		total -= size(oldest);
+		delete doc.messages[String(oldest)];
+	}
+}

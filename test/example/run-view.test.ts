@@ -6,6 +6,7 @@ import {
 	changesFold,
 	composeAnswer,
 	countPatch,
+	diffFor,
 	draftStatus,
 	footerLine,
 	longAnswer,
@@ -14,7 +15,8 @@ import {
 	stepsFold,
 } from "../../src/delivery/run-view.ts";
 import { emptyTrace, type Step, type Trace } from "../../src/delivery/trace.ts";
-import { contextLine, flattenFolds } from "../../src/format/rich.ts";
+import { contextLine, flattenFolds, hasCallbackButtons, markChosen } from "../../src/format/rich.ts";
+import { SEND_FILE_TOOL } from "../../src/telegram/send-file.ts";
 
 function step(id: string, name: string, args: Step["args"], status: Step["status"], result?: string, patch?: string): Step {
 	return { id, name, args, status, ...(result === undefined ? {} : { result }), ...(patch === undefined ? {} : { patch }) };
@@ -63,7 +65,7 @@ test("steps fold: summary with count and names; calls in a row are one list, tex
 	);
 	assert.equal(
 		stepsFold(trace, "on"),
-		"<details><summary>▸ 3 steps · read, write</summary>\n\nI look first.\n\n- ✅ `read: a.ts` · 1 line\n- ✅ `read: b.ts` · 2 lines\n\nNow I change it.\n\n- ✅ `write: a.ts` · Wrote a.ts\n\n</details>",
+		"<details><summary>3 steps · read, write</summary>\n\nI look first.\n\n- ✅ `read: a.ts` · 1 line\n- ✅ `read: b.ts` · 2 lines\n\nNow I change it.\n\n- ✅ `write: a.ts` · Wrote a.ts\n\n</details>",
 	);
 	assert.equal(stepsFold(trace, "off"), undefined);
 	assert.equal(stepsFold(traceOf("only text"), "on"), undefined, "no fold without calls");
@@ -72,26 +74,105 @@ test("steps fold: summary with count and names; calls in a row are one list, tex
 	assert.equal(folded.match(/<\/details>/g)?.length, 1, "model text cannot close the fold");
 });
 
-test("changes fold: one diff block per file with counts; a long diff goes out as a .diff document", () => {
+const lines = (word: string, n: number) => Array.from({ length: n }, (_, i) => `${word} ${i}`).join("\n");
+
+test("changes fold: one diff per file with counts; a long diff shows 60 lines and gets a Full diff button", () => {
 	const small = linePatch("src/a.ts", "one\ntwo\nthree\n", "one\nTWO\nthree\n") ?? "";
-	const bigBefore = Array.from({ length: 80 }, (_, i) => `old ${i}`).join("\n");
-	const bigAfter = Array.from({ length: 80 }, (_, i) => `new ${i}`).join("\n");
-	const big = linePatch("lib/big.ts", bigBefore, bigAfter) ?? "";
+	const big = linePatch("lib/big.ts", lines("old", 80), lines("new", 80)) ?? "";
 	const trace = traceOf(
 		step("a", "edit", { path: "src/a.ts" }, "ok", "ok", small),
 		step("b", "write", { path: "lib/big.ts" }, "ok", "ok", big),
 		step("c", "write", { path: "x.ts" }, "error", "denied", small),
 		step("d", "write", { path: "huge.bin" }, "ok", "ok"),
 	);
-	const { markdown, documents } = changesFold(trace);
-	assert.match(markdown ?? "", /^<details><summary>▸ Changes · 3 files \+81 −81<\/summary>/);
+	const { markdown, row, diffs } = changesFold(trace);
+	assert.match(markdown ?? "", /^<details><summary>Changes · 3 files \+81 −81<\/summary>/);
 	assert.match(markdown ?? "", /\*\*`src\/a\.ts`\*\* \+1 −1\n```diff\n@@ -1,3 \+1,3 @@\n one\n-two\n\+TWO\n three\n```/);
-	assert.match(markdown ?? "", /\*\*`lib\/big\.ts`\*\* \+80 −80 · in `big\.ts\.diff`/);
+	assert.match(
+		markdown ?? "",
+		/\*\*`lib\/big\.ts`\*\* \+80 −80\n```diff\n@@ -1,80 \+1,80 @@\n-old 0\n[^`]*\n-old 58\n```\n_… 101 more lines_/,
+		"the hunk header and 59 lines, then the rest counted",
+	);
 	assert.match(markdown ?? "", /\*\*`huge\.bin`\*\* \+0 −0 · diff not kept/);
 	assert.doesNotMatch(markdown ?? "", /x\.ts/, "a failed write changed nothing");
-	assert.deepEqual(documents, [{ name: "big.ts.diff", text: big }]);
+	assert.deepEqual(diffs, [
+		{ name: "a.ts.diff", text: small },
+		{ name: "big.ts.diff", text: big },
+	]);
+	assert.equal(row, '<tg-button-row><tg-button type="callback_data" data="ork:diff:1">Full diff</tg-button></tg-button-row>');
+	assert.equal(diffFor(diffs, "1")?.text, big);
+	assert.deepEqual(diffFor(diffs, "all"), { name: "changes.diff", text: small + big });
+	assert.equal(diffFor(diffs, "7"), undefined);
+	assert.equal(diffFor(diffs, ""), undefined);
+	assert.equal(diffFor(undefined, "0"), undefined, "a diff that is no longer kept");
 	assert.deepEqual(countPatch(small), { added: 1, removed: 1, lines: 5 }, "the hunk header counts as a shown line");
-	assert.deepEqual(changesFold(traceOf(step("a", "read", { path: "a" }, "ok"))), { markdown: undefined, documents: [] });
+	assert.deepEqual(changesFold(traceOf(step("a", "read", { path: "a" }, "ok"))), { diffs: [] });
+	const short = changesFold(traceOf(step("a", "edit", { path: "src/a.ts" }, "ok", "ok", small)));
+	assert.deepEqual([short.row, short.diffs], [undefined, []], "no long diff, no button, nothing kept");
+});
+
+test("Full diff buttons: one per long diff, each in its own row, up to three; more share one button", () => {
+	const many = (n: number) =>
+		traceOf(
+			...Array.from({ length: n }, (_, i) =>
+				step(`s${i}`, "edit", { path: `f${i}.ts` }, "ok", "ok", linePatch(`f${i}.ts`, lines("a", 40), lines("b", 40))),
+			),
+		);
+	const three = changesFold(many(3));
+	const buttons = [...(three.row ?? "").matchAll(/data="([^"]+)">([^<]+)</g)].map((match) => [match[1], match[2]]);
+	assert.deepEqual(buttons, [
+		["ork:diff:0", "Full diff · f0.ts"],
+		["ork:diff:1", "Full diff · f1.ts"],
+		["ork:diff:2", "Full diff · f2.ts"],
+	]);
+	assert.equal(three.row?.split("\n").length, 3, "each button in its own row");
+	const four = changesFold(many(4));
+	assert.equal(
+		four.row,
+		'<tg-button-row><tg-button type="callback_data" data="ork:diff:all">Full diff · 4 files</tg-button></tg-button-row>',
+	);
+	assert.equal(four.diffs.length, 4);
+	assert.equal(diffFor(four.diffs, "all")?.text.match(/^--- /gm)?.length, 4, "one .diff with every file");
+});
+
+test("changes fold: a new file is one line with its final line count, also after later changes", () => {
+	const created = (id: string, path: string, count: number): Step => ({
+		...step(id, "write", { path }, "ok", "Wrote"),
+		created: { lines: count },
+	});
+	const edit = linePatch("notes.md", "a\nb\n", "a\nB\nC\n");
+	const trace = traceOf(
+		created("a", "notes.md", 102),
+		step("b", "edit", { path: "notes.md" }, "ok", "ok", edit),
+		created("c", "one.txt", 1),
+		created("d", "lost.txt", 3),
+		step("e", "edit", { path: "lost.txt" }, "ok", "ok"),
+	);
+	const { markdown, row, diffs } = changesFold(trace);
+	assert.equal(
+		markdown,
+		"<details><summary>Changes · 3 files +104 −0</summary>\n\n**`notes.md`** · new file, 103 lines\n\n**`one.txt`** · new file, 1 line\n\n**`lost.txt`** · new file\n\n</details>",
+	);
+	assert.deepEqual([row, diffs], [undefined, []], "no diff and no button for a new file");
+});
+
+test("sent files: one line in the steps fold; in the changes fold marked sent, with no Full diff button", () => {
+	const big = linePatch("report.md", lines("old", 50), lines("new", 50));
+	const send = step("s", SEND_FILE_TOOL, { path: "/work/report.md", caption: "Here" }, "ok", "Sent report.md (0 MB).");
+	const trace = traceOf(step("w", "write", { path: "report.md" }, "ok", "ok", big), send);
+	assert.equal(stepLine(send, "on"), "📎 `report.md` · sent");
+	assert.equal(stepLine(send, "full"), "📎 `report.md` · sent");
+	assert.match(stepsFold(trace, "full") ?? "", /\n- 📎 `report\.md` · sent\n\n<\/details>$/);
+	const { markdown, row } = changesFold(trace);
+	assert.match(markdown ?? "", /\*\*`report\.md`\*\* \+50 −50 · sent\n```diff/);
+	assert.equal(row, undefined, "the model sent the file: no button sends it again");
+	const failed = step("f", SEND_FILE_TOOL, { path: "x" }, "error", "File not found or not readable: x");
+	assert.equal(stepLine(failed, "on"), "❌ `telegram_send_file: x` · File not found or not readable: x");
+	const other = traceOf(step("w", "write", { path: "docs/report.md" }, "ok", "ok", big), {
+		...send,
+		args: { path: "report.md" },
+	});
+	assert.ok(changesFold(other).row !== undefined, "another file with the same name keeps its button");
 });
 
 test("write diff: one hunk with three context lines, new and emptied files, undefined without a change", () => {
@@ -111,11 +192,11 @@ test("footer: model, context share and time; unknown parts are left out", () => 
 
 test("reasoning fold: hidden by default; shown above the answer with /reasoning show", () => {
 	const trace: Trace = { ...emptyTrace(), reasoning: ["First I think.", "Then <details>more</details>."] };
-	assert.equal(reasoningFold(trace), "<details><summary>▸ Reasoning</summary>\n\nFirst I think.\n\nThen more.\n\n</details>");
+	assert.equal(reasoningFold(trace), "<details><summary>Reasoning</summary>\n\nFirst I think.\n\nThen more.\n\n</details>");
 	const hidden = composeAnswer({ answer: "Done.", trace, view: DEFAULT_VIEW, limit: undefined, rich: true });
 	assert.equal(hidden.markdown, "Done.");
 	const shown = composeAnswer({ answer: "Done.", trace, view: { ...DEFAULT_VIEW, reasoning: true }, limit: undefined, rich: true });
-	assert.match(shown.markdown, /^<details><summary>▸ Reasoning<\/summary>[\s\S]*<\/details>\n\nDone\.$/);
+	assert.match(shown.markdown, /^<details><summary>Reasoning<\/summary>[\s\S]*<\/details>\n\nDone\.$/);
 });
 
 test("final answer: answer, steps, changes and footer in this order; HTML gets the answer only", () => {
@@ -130,16 +211,23 @@ test("final answer: answer, steps, changes and footer in this order; HTML gets t
 	const rich = composeAnswer({ answer: "All done.", trace, view: DEFAULT_VIEW, limit: 1000, rich: true });
 	const parts = rich.markdown.split("\n\n");
 	assert.equal(parts[0], "All done.");
-	assert.match(rich.markdown, /All done\.\n\n<details><summary>▸ 1 step · write<\/summary>[\s\S]*<\/details>\n\n<details><summary>▸ Changes · 1 file \+1 −1<\/summary>[\s\S]*<\/details>\n\n_m1 · 5% · 4s_$/);
+	assert.match(rich.markdown, /All done\.\n\n<details><summary>1 step · write<\/summary>[\s\S]*<\/details>\n\n<details><summary>Changes · 1 file \+1 −1<\/summary>[\s\S]*<\/details>\n\n_m1 · 5% · 4s_$/);
 	assert.deepEqual(composeAnswer({ answer: "All done.", trace, view: DEFAULT_VIEW, limit: 1000, rich: false }), {
 		markdown: "All done.",
 		documents: [],
+		diffs: [],
 	});
 	const quiet = composeAnswer({ answer: "All done.", trace, view: { ...DEFAULT_VIEW, verbose: "off" }, limit: 1000, rich: true });
 	assert.doesNotMatch(quiet.markdown, /<details>/, "verbose off has no steps or changes fold");
 	assert.deepEqual(quiet.documents, []);
 	const empty = composeAnswer({ answer: undefined, trace: emptyTrace(), view: DEFAULT_VIEW, limit: undefined, rich: true });
 	assert.equal(empty.markdown, "", "an empty answer, no steps and no changes leave nothing");
+	const big = linePatch("b.ts", lines("x", 70), lines("y", 70));
+	const long = { ...trace, items: traceOf(step("b", "edit", { path: "b.ts" }, "ok", "ok", big)).items };
+	const withRow = composeAnswer({ answer: "Done.", trace: long, view: DEFAULT_VIEW, limit: 1000, rich: true });
+	assert.match(withRow.markdown, /<\/details>\n\n<tg-button-row><tg-button [^>]*data="ork:diff:0">Full diff<\/tg-button><\/tg-button-row>\n\n_m1 · /);
+	assert.deepEqual(withRow.diffs, [{ name: "b.ts.diff", text: big }]);
+	assert.deepEqual(withRow.documents, [], "no .diff document goes out by itself");
 });
 
 test("long answer: the start cut at a paragraph outside code, a note and the buttons; the whole text as answer.md", () => {
@@ -159,7 +247,17 @@ test("long answer: the start cut at a paragraph outside code, a note and the but
 });
 
 test("folds: flattened for HTML; left out of the context line with the footer", () => {
-	const markdown = "Answer.\n\n<details><summary>▸ 2 steps · read</summary>\n\n- a\n\n</details>\n\n_m1 · 5% · 4s_";
-	assert.equal(flattenFolds(markdown), "Answer.\n\n▸ 2 steps · read\n\n- a\n\n\n\n_m1 · 5% · 4s_");
+	const markdown = "Answer.\n\n<details><summary>2 steps · read</summary>\n\n- a\n\n</details>\n\n_m1 · 5% · 4s_";
+	assert.equal(flattenFolds(markdown), "Answer.\n\n2 steps · read\n\n- a\n\n\n\n_m1 · 5% · 4s_");
 	assert.equal(contextLine(markdown, 100), "Answer.");
+});
+
+test("own buttons: Full diff is not a model choice; it is never disabled and stays out of the context line", () => {
+	const own = '<tg-button-row><tg-button type="callback_data" data="ork:diff:0">Full diff</tg-button></tg-button-row>';
+	const pick = '<tg-button type="callback_data" data="a">A</tg-button>';
+	assert.equal(hasCallbackButtons(`Done.\n\n${own}`), false, "no model buttons to keep");
+	assert.equal(hasCallbackButtons(`Pick ${pick}\n\n${own}`), true);
+	const marked = markChosen(`Pick ${pick}\n\n${own}\n\n_m1 · 4s_`, "a") ?? "";
+	assert.ok(marked.includes(own), "a choice outside a row leaves the Full diff button as it is");
+	assert.equal(contextLine(`Pick ${pick}\n\n${own}\n\n_m1 · 4s_`, 100), "Pick [A]");
 });

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { type FauxProviderHandle, fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
+import { DIFF_GONE_TEXT } from "../../src/channel/tap.ts";
+import { linePatch } from "../../src/agent/tools/write-diff.ts";
 import { RETRY_DATA, STOP_DATA } from "../../src/delivery/send-phase.ts";
 import { CHAT, newFaux, startTestAgent, type TestAgent, tempDir } from "../helpers/agent.ts";
 import { waitFor } from "../helpers/env.ts";
@@ -54,10 +58,11 @@ test("T-draft-lines: the draft shows each call and the text between calls; the a
 	assert.match(draft.markdown, /^✅ `write: notes\.txt` · Successfully wrote/m);
 	release.open();
 	const answer = await waitFor(() => replyTo(port, 1), { what: "answer" });
-	assert.match(answer.text, /^Done\.\n\n<details><summary>▸ 1 step · write<\/summary>\n\nI write the file\.\n\n- ✅/);
+	assert.match(answer.text, /^Done\.\n\n<details><summary>1 step · write<\/summary>\n\nI write the file\.\n\n- ✅/);
 	assert.match(
 		answer.text,
-		/<details><summary>▸ Changes · 1 file \+2 −0<\/summary>\n\n\*\*`notes\.txt`\*\* \+2 −0\n```diff\n@@ -0,0 \+1,2 @@\n\+one\n\+two\n```/,
+		/<details><summary>Changes · 1 file \+2 −0<\/summary>\n\n\*\*`notes\.txt`\*\* · new file, 2 lines\n\n<\/details>/,
+		"a new file is one line, with no diff",
 	);
 	assert.match(answer.text, /\n\n_faux-1 · \d+% · \d+s_$/, "the footer ends the answer");
 	assert.equal(answer.silent, undefined, "an answer rings");
@@ -110,7 +115,7 @@ test("T-reasoning: hidden by default; /reasoning show puts a fold above the answ
 	assert.equal((await waitFor(() => replyTo(port, 2))).text, "Reasoning: show.");
 	await t.agent.channel.handleUpdate(textUpdate(CHAT, 3, "think again"));
 	const shown = await waitFor(() => replyTo(port, 3));
-	assert.match(shown.text, /^<details><summary>▸ Reasoning<\/summary>\n\nI weigh the options\.\n\n<\/details>\n\nAnswer\./);
+	assert.match(shown.text, /^<details><summary>Reasoning<\/summary>\n\nI weigh the options\.\n\n<\/details>\n\nAnswer\./);
 });
 
 test("T-answer-md: a long answer sends its start and the whole text as answer.md, without a second model call", async () => {
@@ -189,3 +194,60 @@ test("T-sound: the HTML preview is sent without a sound", async () => {
 	assert.equal(first?.options?.silent, true, "the preview message is sent without a sound");
 	await waitFor(() => t.logs.some((line) => line.includes("info delivered")), { what: "delivered" });
 });
+
+const numbered = (word: string, n: number) => Array.from({ length: n }, (_, i) => `${word} ${i}\n`).join("");
+
+test("T-full-diff: a long diff shows 60 lines and a Full diff button; a tap sends the .diff, also after a restart", async () => {
+	const faux = newFaux();
+	faux.setResponses([writeCall("", "big.txt", numbered("new", 80)), fauxAssistantMessage("Rewritten.")]);
+	const first = await setup(faux);
+	await writeFile(join(first.dir, "work", "big.txt"), numbered("old", 80));
+	await first.t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "rewrite big.txt"));
+	const answer = await waitFor(() => replyTo(first.port, 1), { what: "answer" });
+	assert.match(answer.text, /\*\*`big\.txt`\*\* \+80 −80\n```diff\n@@ -1,80 \+1,80 @@\n-old 0\n/);
+	assert.match(answer.text, /```\n_… 101 more lines_\n\n<\/details>/);
+	assert.match(answer.text, /<tg-button type="callback_data" data="ork:diff:0">Full diff<\/tg-button>/);
+	await waitFor(() => first.t.logs.some((line) => line.includes("info delivered")), { what: "delivered" });
+	assert.deepEqual(first.port.documentsIn(CHAT), [], "no .diff file before a tap");
+	await first.t.close();
+	cleanups.pop();
+
+	const { t, port } = await setup(faux, RICH, first.dir);
+	await t.agent.channel.handleUpdate(callbackUpdate(CHAT, answer.id, "ork:diff:0", { queryId: "cq-diff" }));
+	const document = await waitFor(() => port.documentsIn(CHAT)[0], { what: ".diff document" });
+	assert.equal(document.fileName, "big.txt.diff");
+	assert.equal(document.content, linePatch("big.txt", numbered("old", 80), numbered("new", 80)));
+	assert.equal(document.replyTo, answer.id);
+	assert.equal(document.silent, true);
+	assert.ok(port.answeredQueries.includes("cq-diff"));
+	assert.equal(faux.state.callCount, 2, "the tap never reached the model");
+
+	await t.agent.channel.handleUpdate(callbackUpdate(CHAT, 4242, "ork:diff:0", { queryId: "cq-old" }));
+	const gone = await waitFor(() => replyTo(port, 4242), { what: "gone note" });
+	assert.equal(gone.text, DIFF_GONE_TEXT);
+	assert.equal(gone.silent, true);
+	assert.equal(port.documentsIn(CHAT).length, 1);
+});
+
+test("T-sent-file: a file the model sent is one line in the steps fold and is not sent again", async () => {
+	const faux = newFaux();
+	faux.setResponses([
+		writeCall("", "report.txt", numbered("line", 70)),
+		fauxAssistantMessage([fauxToolCall("telegram_send_file", { path: "report.txt" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("Sent it."),
+	]);
+	const { t, port } = await setup(faux);
+	await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "send me a report"));
+	const answer = await waitFor(() => replyTo(port, 1), { what: "answer" });
+	assert.match(answer.text, /\n- 📎 `report\.txt` · sent\n\n<\/details>/);
+	assert.match(answer.text, /\*\*`report\.txt`\*\* · new file, 70 lines · sent/);
+	assert.doesNotMatch(answer.text, /ork:diff/);
+	await waitFor(() => t.logs.some((line) => line.includes("info delivered")), { what: "delivered" });
+	const documents = port.created(CHAT).filter((m) => m.kind === "document");
+	assert.deepEqual(
+		documents.map((m) => m.path?.endsWith("report.txt")),
+		[true],
+		"only the model's own send",
+	);
+});
+

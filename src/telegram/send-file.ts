@@ -29,10 +29,12 @@ const parameters = obj(
 	{ open: true },
 );
 
+export const SEND_FILE_TOOL = "telegram_send_file";
+
 /** `telegram_send_file`: send a workspace file to the conversation's Telegram chat, as a photo when it is one. */
 export function createSendFileTool(deps: SendFileDeps): ToolRegistration {
 	const tool = defineTool({
-		name: "telegram_send_file",
+		name: SEND_FILE_TOOL,
 		description:
 			"Send a file from the workspace to the user in Telegram. Images are sent as photos, everything else as documents. Limit 50 MB.",
 		parameters,

@@ -1,10 +1,11 @@
-import { basename } from "node:path";
+import { basename, normalize } from "node:path";
 import type { JsonValue } from "@earendil-works/chord";
-import type { ChatView, Verbose } from "../channel/docs.ts";
-import { codePointCut, truncate } from "../format/escape.ts";
+import type { ChatView, DiffFile, Verbose } from "../channel/docs.ts";
+import { codePointCut, escapeHtml, truncate } from "../format/escape.ts";
 import { closesFence, type FenceOpener, parseFenceOpener } from "../format/fence.ts";
 import { stripButtons } from "../format/rich.ts";
 import { formatDuration } from "../status/format-status.ts";
+import { SEND_FILE_TOOL } from "../telegram/send-file.ts";
 import { toolHint } from "./hints.ts";
 import { type Step, stepsOf, type Trace } from "./trace.ts";
 
@@ -16,13 +17,20 @@ const START_MAX = 1500;
 const REASONING_MAX = 4000;
 const STEPS_MAX = 10_000;
 const CHANGES_MAX = 10_000;
-/** A file whose diff has more lines goes out as a .diff document. */
+/** The changes fold shows this many lines of a file's diff; the Full diff button under the answer sends the rest. */
 export const DIFF_LINES_INLINE = 60;
+/** Data of the Full diff buttons: `ork:diff:<n>` sends the n-th kept diff, `ork:diff:all` all of them in one file. */
+export const DIFF_DATA = "ork:diff:";
+/** At most this many Full diff buttons, one per file; more files with long diffs share one button. */
+const DIFF_BUTTONS = 3;
+/** The diffs kept for the buttons of one answer stay under this many characters. */
+const DIFFS_KEPT_MAX = 512 * 1024;
 const MINUS = "−";
 const ROW = /<tg-button-row\b[^>]*>[\s\S]*?<\/tg-button-row>/gi;
 
 export type OutDocument = { readonly name: string; readonly text: string };
-export type Composed = { readonly markdown: string; readonly documents: OutDocument[] };
+/** The final message, the documents after it (answer.md), and the diffs its Full diff buttons send. */
+export type Composed = { readonly markdown: string; readonly documents: OutDocument[]; readonly diffs: DiffFile[] };
 
 /**
  * The status block above the streamed text of a draft: the last call lines and the newest text between calls. `rich`
@@ -44,8 +52,12 @@ function lastText(trace: Trace): string | undefined {
 	return item?.kind === "text" ? item.text : undefined;
 }
 
-/** One call: an icon (⚙ running or waiting, ✅ ok, ❌ error), what it was called with, and a short result. */
+/**
+ * One call: an icon (⚙ running or waiting, ✅ ok, ❌ error), what it was called with, and a short result. A file the
+ * model sent to the chat is one short line in every mode.
+ */
 export function stepLine(step: Step, verbose: Verbose, rich = true): string {
+	if (isSentFile(step)) return `📎 ${codeSpan(basename(pathOf(step) ?? "file"))} · sent`;
 	const full = verbose === "full";
 	const label = full ? `${step.name} ${argsText(step.args, 200)}` : toolHint(step.name, step.args);
 	const result = step.result === undefined || step.status === "pending" ? "" : resultLine(step.result, full, rich);
@@ -94,7 +106,7 @@ function fold(summary: string, body: string): string {
 export function reasoningFold(trace: Trace): string | undefined {
 	const text = foldSafe(trace.reasoning.join("\n\n"));
 	if (text === "") return undefined;
-	return fold("▸ Reasoning", closeOpenFence(cutText(text, REASONING_MAX)));
+	return fold("Reasoning", closeOpenFence(cutText(text, REASONING_MAX)));
 }
 
 /** All calls of the run and the full text between them; undefined without calls. */
@@ -102,7 +114,7 @@ export function stepsFold(trace: Trace, verbose: Verbose): string | undefined {
 	const steps = stepsOf(trace);
 	if (verbose === "off" || steps.length === 0) return undefined;
 	const names = [...new Set(steps.map((step) => step.name))];
-	const summary = `▸ ${steps.length} ${steps.length === 1 ? "step" : "steps"} · ${plain(names.join(", "), 80)}`;
+	const summary = `${steps.length} ${steps.length === 1 ? "step" : "steps"} · ${plain(names.join(", "), 80)}`;
 	let body = "";
 	let previous: "text" | "call" | undefined;
 	let shown = 0;
@@ -121,62 +133,158 @@ export function stepsFold(trace: Trace, verbose: Verbose): string | undefined {
 }
 
 function stepItem(step: Step, verbose: Verbose): string {
-	if (verbose !== "full") return `- ${stepLine(step, "on")}`;
+	if (verbose !== "full" || isSentFile(step)) return `- ${stepLine(step, "on")}`;
 	const head = `- ${icon(step)} ${codeSpan(`${step.name} ${argsText(step.args, 300)}`)}`;
 	return step.result === undefined || step.result === "" ? head : `${head}\n  - ${plain(step.result, 500)}`;
 }
 
-type FileChange = { path: string; patches: string[]; added: number; removed: number; lines: number; kept: boolean };
+function pathOf(step: Step): string | undefined {
+	const path = (step.args as { path?: unknown } | undefined)?.path;
+	return typeof path === "string" && path !== "" ? path : undefined;
+}
 
-/** One diff per changed file; a file with a long diff, or past the size of the fold, goes out as a .diff document. */
-export function changesFold(trace: Trace): { markdown: string | undefined; documents: OutDocument[] } {
+function isSentFile(step: Step): boolean {
+	return step.name === SEND_FILE_TOOL && step.status === "ok";
+}
+
+type FileChange = {
+	path: string;
+	patches: string[];
+	added: number;
+	removed: number;
+	/** Diff body lines of all patches. */
+	lines: number;
+	/** Every change of the file has a patch. */
+	kept: boolean;
+	/** The run made the file; `size` is its line count at the end of the run. */
+	created?: { size: number };
+	/** The model sent the file to the chat. */
+	sent: boolean;
+};
+
+/** The changes fold, the row of Full diff buttons for under the answer, and the diffs the buttons send by index. */
+export type Changes = { readonly markdown?: string; readonly row?: string; readonly diffs: DiffFile[] };
+
+/**
+ * One block per changed file: a new file is one line with its line count; a changed file shows the first
+ * `DIFF_LINES_INLINE` lines of its diff, and a longer diff gets a Full diff button (none for a file the model sent).
+ */
+export function changesFold(trace: Trace): Changes {
 	const files = changedFiles(trace);
-	if (files.length === 0) return { markdown: undefined, documents: [] };
-	const documents: OutDocument[] = [];
+	if (files.length === 0) return { diffs: [] };
+	const diffs: DiffFile[] = [];
 	const names = new Set<string>();
+	const long: number[] = [];
 	const blocks: string[] = [];
 	let size = 0;
+	let kept = 0;
 	for (const file of files) {
-		const head = `**${codeSpan(file.path)}** +${file.added} ${MINUS}${file.removed}`;
+		const path = `**${codeSpan(file.path)}**`;
+		const sent = file.sent ? " · sent" : "";
+		if (file.created !== undefined) {
+			const lines = file.kept ? `, ${count(file.created.size, "line")}` : "";
+			blocks.push(`${path} · new file${lines}${sent}`);
+			continue;
+		}
+		const head = `${path} +${file.added} ${MINUS}${file.removed}${sent}`;
 		if (!file.kept) {
 			blocks.push(`${head} · diff not kept`);
 			continue;
 		}
-		const body = file.patches.map(hunksOf).join("\n");
-		const inline = `${head}\n${codeBlock(body, "diff")}`;
-		if (file.lines <= DIFF_LINES_INLINE && size + inline.length <= CHANGES_MAX) {
-			blocks.push(inline);
-			size += inline.length + 2;
-			continue;
+		const text = joinPatches(file.patches);
+		const index = kept + text.length <= DIFFS_KEPT_MAX ? diffs.length : undefined;
+		if (index !== undefined) {
+			diffs.push({ name: uniqueName(`${basename(file.path) || "changes"}.diff`, names), text });
+			kept += text.length;
 		}
-		const name = uniqueName(`${basename(file.path) || "changes"}.diff`, names);
-		documents.push({ name, text: file.patches.join("\n") });
-		blocks.push(`${head} · in ${codeSpan(name)}`);
+		const body = file.patches.map(hunksOf).join("\n").split("\n");
+		const more = body.length - DIFF_LINES_INLINE;
+		const note = more > 0 ? `\n_… ${count(more, "more line")}_` : "";
+		const excerpt = `${head}\n${codeBlock(body.slice(0, DIFF_LINES_INLINE).join("\n"), "diff")}${note}`;
+		const fits = size + excerpt.length <= CHANGES_MAX;
+		blocks.push(fits ? excerpt : `${head} · ${count(body.length, "line")}`);
+		if (fits) size += excerpt.length + 2;
+		if ((more > 0 || !fits) && index !== undefined && !file.sent) long.push(index);
 	}
-	const added = files.reduce((sum, file) => sum + file.added, 0);
-	const removed = files.reduce((sum, file) => sum + file.removed, 0);
-	const count = `${files.length} ${files.length === 1 ? "file" : "files"}`;
-	return { markdown: fold(`▸ Changes · ${count} +${added} ${MINUS}${removed}`, blocks.join("\n\n")), documents };
+	// A new file adds its lines; one with a change that has no patch adds nothing, as its count is not known.
+	const created = (file: FileChange) => (file.kept ? (file.created?.size ?? 0) : 0);
+	const added = files.reduce((sum, file) => sum + (file.created === undefined ? file.added : created(file)), 0);
+	const removed = files.reduce((sum, file) => sum + (file.created === undefined ? file.removed : 0), 0);
+	const markdown = fold(`Changes · ${count(files.length, "file")} +${added} ${MINUS}${removed}`, blocks.join("\n\n"));
+	const row = diffRow(long, diffs);
+	return row === undefined ? { markdown, diffs: [] } : { markdown, row, diffs };
+}
+
+function count(n: number, noun: string): string {
+	return `${n} ${n === 1 ? noun : `${noun}s`}`;
+}
+
+/** Patches one after another as one unified diff. */
+function joinPatches(patches: readonly string[]): string {
+	return patches.map((patch) => (patch.endsWith("\n") ? patch : `${patch}\n`)).join("");
+}
+
+/** One Full diff button per long diff, each in its own row; more than `DIFF_BUTTONS` share one button. */
+function diffRow(long: readonly number[], diffs: readonly DiffFile[]): string | undefined {
+	if (long.length === 0) return undefined;
+	if (long.length > DIFF_BUTTONS) return diffButton(`Full diff · ${count(diffs.length, "file")}`, "all");
+	if (long.length === 1) return diffButton("Full diff", String(long[0]));
+	const name = (index: number) => truncate((diffs[index]?.name ?? "").replace(/\.diff$/, ""), 24);
+	return long.map((index) => diffButton(`Full diff · ${name(index)}`, String(index))).join("\n");
+}
+
+function diffButton(label: string, which: string): string {
+	const button = `<tg-button type="callback_data" data="${DIFF_DATA}${which}">${escapeHtml(label)}</tg-button>`;
+	return `<tg-button-row>${button}</tg-button-row>`;
+}
+
+/** The diff a Full diff button's data names: one kept file, or all of them as `changes.diff`. */
+export function diffFor(files: readonly DiffFile[] | undefined, which: string): DiffFile | undefined {
+	if (files === undefined || files.length === 0) return undefined;
+	if (which === "all") return { name: "changes.diff", text: joinPatches(files.map((file) => file.text)) };
+	return /^\d+$/.test(which) ? files[Number(which)] : undefined;
 }
 
 function changedFiles(trace: Trace): FileChange[] {
 	const byPath = new Map<string, FileChange>();
+	const sent = stepsOf(trace).filter(isSentFile).flatMap((step) => pathOf(step) ?? []);
 	for (const step of stepsOf(trace)) {
-		const path = (step.args as { path?: unknown } | undefined)?.path;
-		if (step.status !== "ok" || !["write", "edit"].includes(step.name) || typeof path !== "string") continue;
-		const file = byPath.get(path) ?? { path, patches: [], added: 0, removed: 0, lines: 0, kept: true };
-		byPath.set(path, file);
+		const path = pathOf(step);
+		if (step.status !== "ok" || !["write", "edit"].includes(step.name) || path === undefined) continue;
+		let file = byPath.get(path);
+		if (file === undefined || step.created !== undefined) {
+			const wasSent = sent.some((each) => samePath(each, path));
+			file = { path, patches: [], added: 0, removed: 0, lines: 0, kept: true, sent: wasSent };
+			byPath.set(path, file);
+		}
+		if (step.created !== undefined) {
+			file.created = { size: step.created.lines };
+			continue;
+		}
 		if (step.patch === undefined) {
 			file.kept = false;
 			continue;
 		}
 		const counts = countPatch(step.patch);
+		// A new file stays new: later changes only move its line count.
+		if (file.created !== undefined) {
+			file.created.size += counts.added - counts.removed;
+			continue;
+		}
 		file.patches.push(step.patch);
 		file.added += counts.added;
 		file.removed += counts.removed;
 		file.lines += counts.lines;
 	}
-	return [...byPath.values()].filter((file) => !file.kept || file.lines > 0);
+	return [...byPath.values()].filter((file) => file.created !== undefined || !file.kept || file.lines > 0);
+}
+
+/** The same file: the same path, or an absolute path that ends in the other, relative one. */
+function samePath(a: string, b: string): boolean {
+	const [x, y] = [normalize(a), normalize(b)];
+	const ends = (full: string, part: string) =>
+		full.startsWith("/") && !part.startsWith("/") && full.endsWith(`/${part}`);
+	return x === y || ends(x, y) || ends(y, x);
 }
 
 /** Added, removed and body lines of a unified diff (file headers are not counted). */
@@ -298,22 +406,26 @@ export type ComposeInput = {
 	readonly rich: boolean;
 };
 
-/** The final message: reasoning fold (when shown), answer, steps fold, changes fold and footer, plus documents. */
+/**
+ * The final message: reasoning fold (when shown), answer, steps fold, changes fold, Full diff buttons and footer; plus
+ * answer.md for a long answer.
+ */
 export function composeAnswer(input: ComposeInput): Composed {
 	const { trace, view } = input;
-	if (!input.rich) return { markdown: input.answer ?? "", documents: [] };
+	if (!input.rich) return { markdown: input.answer ?? "", documents: [], diffs: [] };
 	const long = input.answer === undefined ? undefined : longAnswer(input.answer);
 	const documents: OutDocument[] = long?.document === undefined ? [] : [long.document];
 	// Verbose off is the answer and the footer only: no steps, no changes.
-	const changes = view.verbose === "off" ? { markdown: undefined, documents: [] } : changesFold(trace);
+	const changes: Changes = view.verbose === "off" ? { diffs: [] } : changesFold(trace);
 	const parts = [
 		view.reasoning ? reasoningFold(trace) : undefined,
 		long?.text,
 		stepsFold(trace, view.verbose),
 		changes.markdown,
+		changes.row,
 		footerLine(trace, input.limit),
 	];
-	return { markdown: join(parts), documents: [...documents, ...changes.documents] };
+	return { markdown: join(parts), documents, diffs: changes.diffs };
 }
 
 function join(parts: readonly (string | undefined)[]): string {

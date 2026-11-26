@@ -84,8 +84,10 @@ export class TraceBuilder {
 		const step = this.call(message.toolCallId, message.toolName, undefined);
 		step.status = message.isError ? "error" : "ok";
 		step.result = truncate(resultText(message.content).trim(), RESULT_MAX);
-		const patch = (message.details as { patch?: unknown } | undefined)?.patch;
+		const details = message.details as { patch?: unknown; created?: unknown; lines?: unknown } | undefined;
+		const patch = details?.patch;
 		if (typeof patch === "string" && patch.length <= PATCH_MAX && patch.trim() !== "") step.patch = patch;
+		if (details?.created === true && typeof details.lines === "number") step.created = { lines: details.lines };
 	}
 }
 

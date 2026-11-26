@@ -12,7 +12,7 @@ export function helpText(voice: boolean): string {
 		"Photos and documents are saved to inbox/ and I can look at them. I can send files back.",
 		voice ? "Voice messages are transcribed." : "Voice messages are off (no DEEPGRAM_API_KEY).",
 		"Messages sent while I work are queued and answered in order.",
-		"An error has Retry and Stop buttons. A long answer also comes as answer.md.",
+		"An error has Retry and Stop buttons. A long answer also comes as answer.md; a long diff has a Full diff button.",
 	].join("\n");
 }
 

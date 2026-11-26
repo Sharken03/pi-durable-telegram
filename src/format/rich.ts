@@ -160,8 +160,16 @@ export function flattenFolds(markdown: string): string {
 		.replace(/<\/?(details|summary)\b[^>]*>/gi, "");
 }
 
+/** Data of the bot's own buttons (Full diff, Retry, Stop); a tap on them never reaches the model. */
+const OWN_DATA = "ork:";
+
+function isOwn(attrs: string): boolean {
+	return decodeEntities(DATA_ATTR.exec(attrs)?.[2] ?? "").startsWith(OWN_DATA);
+}
+
+/** The text has a callback button of the model's own (not one of the bot's). */
 export function hasCallbackButtons(markdown: string): boolean {
-	return [...markdown.matchAll(BUTTON)].some((match) => CALLBACK.test(match[1] ?? ""));
+	return [...markdown.matchAll(BUTTON)].some((match) => CALLBACK.test(match[1] ?? "") && !isOwn(match[1] ?? ""));
 }
 
 /**
@@ -187,7 +195,7 @@ export function markChosen(markdown: string, data: string): string | undefined {
 function disableChoices(text: string, data: string): string {
 	let chosen = false;
 	return text.replace(BUTTON, (button: string, attrs: string, label: string) => {
-		if (!CALLBACK.test(attrs)) return button;
+		if (!CALLBACK.test(attrs) || isOwn(attrs)) return button;
 		const hit = !chosen && decodeEntities(DATA_ATTR.exec(attrs)?.[2] ?? "") === data;
 		chosen ||= hit;
 		const kept = attrs.replace(CALLBACK, "").replace(DATA_ATTR, "");
@@ -211,10 +219,13 @@ export function draftMarkdown(text: string): string {
 }
 
 /**
- * One line of a sent text for the model's context, collapsed and cut to `max` characters. Folds and a last italic
- * line (the footer) are left out: they describe the run, not the message.
+ * One line of a sent text for the model's context, collapsed and cut to `max` characters. Folds, the bot's own button
+ * rows and a last italic line (the footer) are left out: they describe the run, not the message.
  */
 export function contextLine(markdown: string, max: number): string {
-	const message = markdown.replace(/<details\b[\s\S]*?<\/details>/gi, "").replace(/\n\n_[^\n]+_\s*$/, "");
+	const message = markdown
+		.replace(/<details\b[\s\S]*?<\/details>/gi, "")
+		.replace(ROW, (row) => ([...row.matchAll(BUTTON)].every((match) => isOwn(match[1] ?? "")) ? "" : row))
+		.replace(/\n\n_[^\n]+_\s*$/, "");
 	return truncate(stripButtons(message).replace(/\s+/g, " ").trim(), max);
 }

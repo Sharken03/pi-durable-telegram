@@ -9,7 +9,17 @@ import {
 	type Tx,
 	UserEntry,
 } from "@earendil-works/pi-durable";
-import { Buttons, DEFAULT_VIEW, Delivered, Retries, rememberButtons, rememberRetry } from "../channel/docs.ts";
+import {
+	Buttons,
+	DEFAULT_VIEW,
+	Delivered,
+	type DiffFile,
+	Diffs,
+	Retries,
+	rememberButtons,
+	rememberDiffs,
+	rememberRetry,
+} from "../channel/docs.ts";
 import { type Chunk, splitForTelegram } from "../format/chunk.ts";
 import { escapeHtml } from "../format/escape.ts";
 import { flattenFolds, hasCallbackButtons, shortenButtonsData, splitRich, stripButtons } from "../format/rich.ts";
@@ -20,7 +30,7 @@ import { finalReplyText } from "./final-text.ts";
 import { stallsQueue, unansweredText } from "./outcome.ts";
 import { withPlainFallback } from "./preview.ts";
 import { readTrace } from "./run-entries.ts";
-import { composeAnswer, type OutDocument } from "./run-view.ts";
+import { composeAnswer, DIFF_DATA, type OutDocument } from "./run-view.ts";
 import { emptyTrace, stepsOf, type Trace } from "./trace.ts";
 import type { DeliverInput, DeliverState, DeliveryDeps, Outcome, SendState } from "./types.ts";
 import { terminal } from "./wait-phase.ts";
@@ -47,11 +57,13 @@ const ERROR_BUTTONS: readonly (readonly InlineButton[])[] = [
 
 /**
  * A chunk of the outcome: a message (rich or HTML), or a document sent after the message. `retry`: an error message
- * with Retry and Stop buttons; its request is kept so Retry can send it again. `silent`: status, not an answer.
+ * with Retry and Stop buttons; its request is kept so Retry can send it again. `diffs`: what the Full diff buttons of
+ * the message send, kept with it. `silent`: status, not an answer.
  */
 type Piece = Chunk & {
 	readonly buttons?: readonly (readonly InlineButton[])[];
 	readonly retry?: boolean;
+	readonly diffs?: DiffFile[];
 	readonly silent?: boolean;
 	readonly document?: OutDocument;
 };
@@ -94,7 +106,7 @@ async function renderOutcome(job: Job, state: SendState): Promise<Piece[]> {
 	return outcome.reason === "aborted" && preview !== undefined ? [{ ...plainChunk(STOPPED_TEXT), silent: true }] : [];
 }
 
-/** The answer with its folds and footer as messages, then its documents (answer.md, .diff files). */
+/** The answer with its folds and footer as messages, then answer.md for a long answer. */
 async function renderAnswer(job: Job, state: SendState, outcome: Extract<Outcome, { kind: "answer" }>) {
 	const entry = await job.runtime.entry(AssistantEntry, outcome.entryId as never, job.context);
 	const rich = job.deps.rich === true;
@@ -115,7 +127,12 @@ async function renderAnswer(job: Job, state: SendState, outcome: Extract<Outcome
 		rich,
 	});
 	const documents = composed.documents.map((document): Piece => ({ html: "", plain: "", document, silent: true }));
-	return [...answerChunks(composed.markdown, rich, state.htmlFrom), ...documents];
+	const chunks: Piece[] = answerChunks(composed.markdown, rich, state.htmlFrom);
+	// The diffs go with the rich message that carries their buttons; HTML drops the buttons.
+	const holder = chunks.findIndex((chunk) => chunk.rich?.includes(`data="${DIFF_DATA}`) === true);
+	const { diffs } = composed;
+	if (holder >= 0 && diffs.length > 0) chunks[holder] = { ...(chunks[holder] as Piece), diffs };
+	return [...chunks, ...documents];
 }
 
 /** The run's trace from the user's entry to the answer; empty for a state without `from` (an earlier version). */
@@ -203,8 +220,8 @@ async function sleepBeforeRetry(job: Job, state: SendState, delay: number, rateL
 }
 
 /**
- * Commit the chunk's outcome. In the same commit, a sent rich chunk with callback buttons keeps its Markdown, and a
- * sent error message keeps its request for Retry.
+ * Commit the chunk's outcome. In the same commit, a sent rich chunk with the model's callback buttons keeps its
+ * Markdown, a sent chunk with Full diff buttons keeps its diffs, and a sent error message keeps its request for Retry.
  */
 async function record(job: Job, state: SendState, index: number, sent: Sent, chunk?: Piece): Promise<SendState> {
 	const { inFlight: _cleared, editAttempts: _edits, rateLimitWaits: _waits, previewSkipped: _skipped, ...rest } = state;
@@ -212,14 +229,21 @@ async function record(job: Job, state: SendState, index: number, sent: Sent, chu
 	const next: SendState = sent.kind === "rejected" ? { ...rest, htmlFrom: index } : { ...rest, sent: index + 1 };
 	if (sent.kind === "sent") next.messageIds = [...state.messageIds, sent.messageId];
 	if (sent.kind === "unknown" || state.unknown === true) next.unknown = true;
-	const markdown = chunk?.rich;
+	if (sent.kind !== "sent" || chunk === undefined) {
+		await save(job, next);
+		return next;
+	}
+	const markdown = chunk.rich;
+	const { diffs } = chunk;
 	const id = job.runtime.conversationId;
-	if (sent.kind === "sent" && chunk?.retry === true) {
-		const { content, messageId } = job.task.input;
-		const retry = messageId === undefined ? { content } : { content, replyTo: messageId };
-		await save(job, next, async (tx) => rememberRetry(await tx.doc(Retries, id), sent.messageId, retry));
-	} else if (sent.kind !== "sent" || markdown === undefined || !hasCallbackButtons(markdown)) await save(job, next);
-	else await save(job, next, async (tx) => rememberButtons(await tx.doc(Buttons, id), sent.messageId, markdown));
+	const { content, messageId } = job.task.input;
+	const retry = messageId === undefined ? { content } : { content, replyTo: messageId };
+	await save(job, next, async (tx) => {
+		if (chunk.retry === true) rememberRetry(await tx.doc(Retries, id), sent.messageId, retry);
+		if (markdown !== undefined && hasCallbackButtons(markdown))
+			rememberButtons(await tx.doc(Buttons, id), sent.messageId, markdown);
+		if (diffs !== undefined) rememberDiffs(await tx.doc(Diffs, id), sent.messageId, diffs);
+	});
 	return next;
 }
 

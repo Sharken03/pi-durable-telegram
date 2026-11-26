@@ -7,8 +7,8 @@ const MAX_BEFORE_BYTES = 512 * 1024;
 const CONTEXT_LINES = 3;
 
 /**
- * `write` that also returns a unified diff of the change in `details.patch`, as `edit` does, so the chat can show
- * what changed. The diff never reaches the model; the write itself is the stock tool's.
+ * `write` that also returns what changed in `details`, so the chat can show it: a unified diff in `patch`, as `edit`
+ * does, or `created` and `lines` for a new file. The details never reach the model; the write is the stock tool's.
  */
 export function createDiffWriteTool(): ToolRegistration {
 	const write = createWriteTool() as unknown as ToolRegistration;
@@ -19,23 +19,26 @@ export function createDiffWriteTool(): ToolRegistration {
 			const before = typeof path === "string" ? await readBefore(api, path, context) : undefined;
 			const result = await write.execute(args, api, context);
 			if (before === undefined || result.isError === true || typeof content !== "string") return result;
-			const patch = linePatch(String(path), before, content);
+			if (before.created) return { ...result, details: { created: true, lines: splitLines(content).length } };
+			const patch = linePatch(String(path), before.text, content);
 			return patch === undefined ? result : { ...result, details: { patch } };
 		},
 	};
 }
 
-/** The file's text before the write: "" for a new file, undefined when it cannot be read or is too large. */
-async function readBefore(api: ToolExecutionApi, path: string, context: Context): Promise<string | undefined> {
+type Before = { readonly text: string; readonly created: boolean };
+
+/** The file's text before the write (`created` for a new file); undefined when it cannot be read or is too large. */
+async function readBefore(api: ToolExecutionApi, path: string, context: Context): Promise<Before | undefined> {
 	const env = api.env;
 	if (env === undefined) return undefined;
 	const exists = await env.exists(path, context);
 	if (!exists.ok) return undefined;
-	if (!exists.value) return "";
+	if (!exists.value) return { text: "", created: true };
 	const info = await env.fileInfo(path, context);
 	if (!info.ok || info.value.kind !== "file" || info.value.size > MAX_BEFORE_BYTES) return undefined;
 	const text = await env.readTextFile(path, context);
-	return text.ok ? text.value : undefined;
+	return text.ok ? { text: text.value, created: false } : undefined;
 }
 
 /**
@@ -72,6 +75,7 @@ export function linePatch(path: string, before: string, after: string): string |
 	);
 }
 
+/** The lines of a text; a last newline ends the last line and adds no empty one. */
 function splitLines(text: string): string[] {
 	if (text === "") return [];
 	const lines = text.replace(/\r\n/g, "\n").split("\n");

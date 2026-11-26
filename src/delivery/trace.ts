@@ -15,6 +15,8 @@ export type Step = {
 	result?: string;
 	/** A unified diff of the file the call changed (write, edit). */
 	patch?: string;
+	/** The call made a new file (write) with this many lines; it has no patch. */
+	created?: { readonly lines: number };
 };
 
 export type TraceItem =
