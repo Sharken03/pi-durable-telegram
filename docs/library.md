@@ -11,7 +11,6 @@ import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import {
-  buildSafeEnv,
   createFileCredentialStore,
   createPromptExtension,
   createTelegramChannel,
@@ -33,7 +32,7 @@ const channel = createTelegramChannel({
 });
 
 const registry = createRegistry();
-registry.install(createWorkspaceTools({ env: buildSafeEnv(process.env) }));
+registry.install(createWorkspaceTools({ cacheDir: "/home/me/.local/state/bot/file-cache" }));
 registry.install(createPromptExtension({ instructionsPath: `${workdir}/AGENTS.md`, rich: true }));
 registry.install(channel.extension);
 
