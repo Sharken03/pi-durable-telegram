@@ -13,6 +13,7 @@ import { createDeepgramStt } from "../media/deepgram.ts";
 import type { Stt } from "../media/stt.ts";
 import { type LoadedPlugins, loadPlugins } from "../plugins/load.ts";
 import { cancelReminderTask } from "../plugins/reminders/task.ts";
+import { skillRoots } from "../plugins/skills.ts";
 import type { FatalHandler } from "../runtime/fatal.ts";
 import { errorSummary, type Logger, silentLogger } from "../runtime/log.ts";
 import { ensurePrivateDir, makePrivate } from "../runtime/private-dir.ts";
@@ -94,7 +95,10 @@ export async function openAgent(config: Config, deps: OpenAgentDeps = {}): Promi
 		}),
 	});
 	const registry = createRegistry();
-	registry.install(createWorkspaceTools());
+	const env = deps.pluginEnv ?? process.env;
+	// The model reads a skill's SKILL.md where the skill lies: the skill folders may be read, never written.
+	const readRoots = config.plugins.includes("skills") ? skillRoots({ env, workdir: config.workdir }) : [];
+	registry.install(createWorkspaceTools({ workdir: config.workdir, readRoots }));
 	registry.install(
 		createPromptExtension({ instructionsPath: config.instructionsPath, rich: config.telegramRich === "auto" }),
 	);
@@ -103,7 +107,6 @@ export async function openAgent(config: Config, deps: OpenAgentDeps = {}): Promi
 	const snapshot = registry.snapshot();
 	const names = [...snapshot.installed(), ...snapshot.tools().map((entry) => entry.tool)].map((x) => x.name);
 	const taken = new Set([...names, ...snapshot.sections().map((entry) => `section:${entry.section.key}`)]);
-	const env = deps.pluginEnv ?? process.env;
 	let harness: Harness;
 	const base = {
 		cancelReminder: (conversationId: ConversationId, id: string, context: Context) =>

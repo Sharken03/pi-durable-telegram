@@ -107,10 +107,13 @@ export function imagePathOf(message: Message): string | undefined {
 	return typeof path === "string" ? path : undefined;
 }
 
-/** Re-attach the newest images to the request; older ones get a note. */
+/** Whether the image hook may read the file at this canonical path. */
+export type ImageAllowed = (path: string) => Promise<boolean>;
+
+/** Re-attach the newest images to the request; older ones get a note, as does an image outside the allowed folders. */
 export async function attachImages(
 	messages: readonly Message[],
-	options: { maxBytes: number; canView: boolean },
+	options: { maxBytes: number; canView: boolean; allowed?: ImageAllowed },
 ): Promise<Message[]> {
 	const positions = messages.flatMap((message, index) => (imagePathOf(message) === undefined ? [] : [index]));
 	const recent = new Set(positions.slice(-IMAGES_PER_REQUEST));
@@ -122,6 +125,8 @@ export async function attachImages(
 			if (!options.canView) return appendContent(result, text("[this model cannot view images]"));
 			if (!recent.has(index))
 				return appendContent(result, text("[image omitted to save context; read it again to view]"));
+			if (options.allowed !== undefined && !(await options.allowed(path)))
+				return appendContent(result, text("[image not available: outside the working directory]"));
 			return appendContent(result, await loadImage(path, options.maxBytes));
 		}),
 	);
@@ -149,14 +154,15 @@ async function requestModel(api: HookApi, context: Context) {
 	return modelOf(api.models, agent?.model);
 }
 
-/** Generation hook that attaches image bytes for `read` results at request time. */
-export function createImageRequestHook(): HookRegistration {
+/** Generation hook that attaches image bytes for `read` results at request time, only from files `allowed` accepts. */
+export function createImageRequestHook(allowed?: ImageAllowed): HookRegistration {
 	return hook(GenerationTask, {
 		beforeRequest: async (request, api, context) => {
 			if (!request.messages.some((message) => imagePathOf(message) !== undefined)) return undefined;
 			const model = await requestModel(api, context);
 			const canView = model === undefined || model.input.includes("image");
-			const messages = await attachImages(request.messages, { maxBytes: maxImageBytes(model), canView });
+			const options = { maxBytes: maxImageBytes(model), canView, ...(allowed === undefined ? {} : { allowed }) };
+			const messages = await attachImages(request.messages, options);
 			return { messages };
 		},
 	});

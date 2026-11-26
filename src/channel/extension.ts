@@ -15,12 +15,15 @@ export function createTelegramExtension(options: {
 	compactReport: CompactReportTask;
 	port: () => TelegramPort;
 	log: Logger;
+	/** The agent's working directory: `telegram_send_file` sends only files in it. */
+	workdir: string;
 	allowed: ReadonlySet<number>;
 	uploadLimit?: number;
 }): Extension {
 	const sendFile = createSendFileTool({
 		port: options.port,
 		log: options.log,
+		workdir: options.workdir,
 		...(options.uploadLimit === undefined ? {} : { uploadLimit: options.uploadLimit }),
 	});
 	return defineExtension({
