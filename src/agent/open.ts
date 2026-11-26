@@ -78,6 +78,7 @@ export async function openAgent(config: Config, deps: OpenAgentDeps = {}): Promi
 			previewIntervalMs: deps.previewIntervalMs,
 			editRetryDelaysMs: deps.editRetryDelaysMs,
 			limits: deps.limits,
+			contextCap: config.contextCap,
 		}),
 	});
 	const registry = createRegistry();

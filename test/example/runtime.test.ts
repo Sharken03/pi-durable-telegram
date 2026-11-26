@@ -5,7 +5,7 @@ import { chooseOption, describe } from "../../src/auth/interaction.ts";
 import { isSecretName, scrubSecrets } from "../../src/config/scrub.ts";
 import { createLogger, formatLine } from "../../src/runtime/log.ts";
 import { redact } from "../../src/runtime/redact.ts";
-import { formatDuration, formatStatus, formatTokens } from "../../src/status/format-status.ts";
+import { contextLimit, formatDuration, formatStatus, formatTokens } from "../../src/status/format-status.ts";
 
 test("redact masks tokens, keys and auth headers", () => {
 	const token = `1234567890:${"A".repeat(35)}`;
@@ -95,4 +95,29 @@ test("status formatting", () => {
 	assert.match(text, /State: working \(bash\), queued: 2/);
 	assert.match(text, /Context: 250\.0k \/ 1\.00M \(25%\)/);
 	assert.match(text, /This chat: in 1\.0k, out 500, \$0\.25/);
+});
+
+test("context limit: the cap counts when it is set and below the window", () => {
+	assert.equal(contextLimit(1_000_000, 128_000), 128_000);
+	assert.equal(contextLimit(1_000_000, undefined), 1_000_000);
+	assert.equal(contextLimit(100_000, 128_000), 100_000);
+	assert.equal(contextLimit(undefined, 128_000), undefined);
+	const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+	const text = formatStatus({
+		version: "0.1.0",
+		model: "deepseek/deepseek-flash",
+		thinking: "high",
+		auth: "api_key",
+		busy: false,
+		tool: undefined,
+		queued: 0,
+		contextTokens: 2_700,
+		contextWindow: contextLimit(1_000_000, 128_000),
+		chat: zero,
+		total: zero,
+		uptimeMs: 0,
+		voice: false,
+		plugins: { loaded: [], problems: [] },
+	});
+	assert.match(text, /Context: 2\.7k \/ 128\.0k \(2%\)/);
 });

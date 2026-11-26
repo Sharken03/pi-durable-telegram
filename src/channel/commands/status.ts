@@ -2,7 +2,7 @@ import { BACKGROUND_CONTEXT as BG } from "@earendil-works/chord/context";
 import type { Usage } from "@earendil-works/pi-ai";
 import { InboxDoc, LiveDoc, UsageDoc, type UsageState } from "@earendil-works/pi-durable";
 import { contextTokens } from "../../status/context-usage.ts";
-import { formatStatus, type UsageTotals } from "../../status/format-status.ts";
+import { contextLimit, formatStatus, type UsageTotals } from "../../status/format-status.ts";
 import { recordKey } from "../intake.ts";
 import { type MessageScope, reply } from "../scope.ts";
 
@@ -45,7 +45,7 @@ export async function runStatus(scope: MessageScope): Promise<void> {
 		tool: live?.tools?.find((slot) => slot.status === "running")?.name,
 		queued: (await harness.snapshot(InboxDoc, id, BG))?.items.length ?? 0,
 		contextTokens: contextTokens(view.messages),
-		contextWindow: models?.getModel(model.provider, model.modelId)?.contextWindow,
+		contextWindow: contextLimit(models?.getModel(model.provider, model.modelId)?.contextWindow, scope.rt.contextCap),
 		chat: totals(await harness.snapshot(UsageDoc, id, BG)),
 		total: totals(await harness.usage(BG)),
 		uptimeMs: Date.now() - scope.rt.startedAt,

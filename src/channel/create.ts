@@ -40,6 +40,8 @@ export type TelegramChannelOptions = {
 	readonly limits?: { readonly downloadBytes?: number; readonly uploadBytes?: number };
 	/** Used by /status for the context window and auth state. */
 	readonly models?: Models;
+	/** PI_CONTEXT_CAP: context use is shown against it when it is below the model's window. */
+	readonly contextCap?: number;
 	/** Replace the grammY transport (tests, proxies). Polling still uses grammY with `botToken`. */
 	readonly port?: TelegramPort;
 	/** The service cannot continue (failed storage, bad token, another poller). Default: log and exit. */
@@ -213,6 +215,7 @@ class Lifecycle {
 			workdir: options.workdir,
 			stt: options.stt,
 			models: options.models,
+			contextCap: options.contextCap,
 			model: options.model,
 			downloadLimit: options.limits?.downloadBytes ?? DOWNLOAD_LIMIT_BYTES,
 			deliver: this.#d.deliver,

@@ -21,6 +21,7 @@ export type ChannelRuntime = {
 	readonly workdir: string;
 	readonly stt: Stt | undefined;
 	readonly models: Models | undefined;
+	readonly contextCap: number | undefined;
 	readonly model: ModelRef;
 	readonly downloadLimit: number;
 	readonly deliver: DeliverTask;

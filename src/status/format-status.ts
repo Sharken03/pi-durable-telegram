@@ -9,6 +9,7 @@ export type StatusInfo = {
 	readonly tool: string | undefined;
 	readonly queued: number;
 	readonly contextTokens: number;
+	/** The limit context use is shown against: see `contextLimit`. */
 	readonly contextWindow: number | undefined;
 	readonly chat: UsageTotals;
 	readonly total: UsageTotals;
@@ -19,6 +20,11 @@ export type StatusInfo = {
 		readonly problems: readonly { plugin: string; reason: string }[];
 	};
 };
+
+/** The context the agent works with: the cap when it is set and below the model's window, else the window. */
+export function contextLimit(window: number | undefined, cap: number | undefined): number | undefined {
+	return cap !== undefined && window !== undefined && cap < window ? cap : window;
+}
 
 export function formatTokens(count: number): string {
 	if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(2)}M`;

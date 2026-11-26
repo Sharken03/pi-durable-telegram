@@ -18,10 +18,13 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function setup(faux: FauxProviderHandle): Promise<{ t: TestAgent; port: FakeTelegram; dir: string }> {
+async function setup(
+	faux: FauxProviderHandle,
+	config: Record<string, string> = {},
+): Promise<{ t: TestAgent; port: FakeTelegram; dir: string }> {
 	const { dir, cleanup } = await tempDir();
 	const port = new FakeTelegram();
-	const t = await startTestAgent({ dir, faux, port });
+	const t = await startTestAgent({ dir, faux, port, config });
 	cleanups.push(cleanup, () => t.close());
 	return { t, port, dir };
 }
@@ -63,6 +66,12 @@ test("/status reports model, thinking, auth, queue and spend", async () => {
 	assert.match(status, /State: idle, queued: 0/);
 	assert.match(status, /Context: \d+/);
 	assert.match(status, /This chat: in /);
+});
+
+test("/status shows context use against PI_CONTEXT_CAP when it is below the window", async () => {
+	const { t, port } = await setup(newFaux(), { PI_CONTEXT_CAP: "64000" });
+	await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "/status"));
+	assert.match(await waitFor(() => replyTo(port, 1)), /Context: \d+ \/ 64\.0k \(0%\)/);
 });
 
 test("/new starts a fresh context in the same conversation; history stays in storage", async () => {
