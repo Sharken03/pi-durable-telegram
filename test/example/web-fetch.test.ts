@@ -102,7 +102,7 @@ test("T-fetch-urls: only public http(s) host names; nothing is sent for a refuse
 		"https://u:p@a.example",
 		"nope",
 	])
-		assert.throws(() => checkUrl(bad), undefined, bad);
+		assert.throws(() => checkUrl(bad), Error, bad);
 	assert.equal(checkUrl(" https://dr.dk/nyheder "), "https://dr.dk/nyheder");
 	await assert.rejects(read({ EXA_API_KEY: "k" }, { url: "http://192.168.1.1/" }), /public host names/);
 	assert.equal(seen.length, 0);
