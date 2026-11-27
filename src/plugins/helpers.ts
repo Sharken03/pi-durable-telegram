@@ -74,11 +74,13 @@ async function modelChange(ctx: Ctx, thinking: ModelThinkingLevel | undefined): 
  * aborted with the call, and given the same chat so its tools reach the user. Without `self` it cannot start helpers.
  */
 async function runHelper(task: string, api: ToolExecutionApi, context: Context, self: Extension, settings: Settings) {
+	// The helper works where the chat works: a directory set with /project applies to the helper too.
+	const { cwd } = await api.agent(context);
 	const child = await api.commit(async (tx) => {
 		const existing = (await tx.scanConversations({ ownerTaskId: api.taskId }, 1)).items[0];
 		if (existing !== undefined) return existing.id;
 		const created = await tx.createConversation({ ownership: { kind: "task", taskId: api.taskId } });
-		await configure(tx, created.id, { ...settings.change, extensions: { remove: [self] } });
+		await configure(tx, created.id, { ...settings.change, cwd, extensions: { remove: [self] } });
 		Object.assign(await tx.doc(ChatInfo, created.id), await tx.doc(ChatInfo, api.conversationId));
 		return created.id;
 	}, context);

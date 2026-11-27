@@ -10,7 +10,9 @@ import {
 } from "@earendil-works/pi-ai";
 import type { Harness } from "@earendil-works/pi-durable";
 import { toolHint } from "../../src/delivery/hints.ts";
-import { CHAT, newFaux, startTestAgent, type TestAgent, tempDir } from "../helpers/agent.ts";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { CHAT, newFaux, startTestAgent, type TestAgent, tempDir, testConfig } from "../helpers/agent.ts";
 import { sleep, waitFor } from "../helpers/env.ts";
 import { FakeTelegram } from "../helpers/fake-telegram.ts";
 import { gate, lastUserText, textOf, untilAborted } from "../helpers/faux-steps.ts";
@@ -91,6 +93,12 @@ async function setup(
 async function children(harness: Harness): Promise<number[]> {
 	const page = await harness.commit((tx) => tx.scanConversations({}, 100), BG);
 	return page.items.filter((record) => record.owner !== undefined).map((record) => record.id);
+}
+
+/** The directory a conversation's agent works in. */
+async function cwdOf(harness: Harness, id: number): Promise<string | undefined> {
+	const conversation = await harness.conversation(id as never, BG);
+	return (await conversation?.agent(BG))?.cwd;
 }
 
 const many = (step: FauxResponseFactory, n = 30) => Array.from({ length: n }, () => step);
@@ -295,4 +303,33 @@ test("T-helper-plugin-off: a helper left running, then the plugin removed: the d
 		[],
 	);
 	assert.ok((await childTaskStates(two.t.agent.harness)).every((state) => ["aborted", "completed"].includes(state)));
+});
+
+test("T-helper-project: a helper works in the directory the chat set with /project", async () => {
+	const faux = newFaux();
+	await faux;
+	const seen: Seen[] = [];
+	faux.setResponses(
+		many(router({ seen, parent: delegate("Say hi"), child: () => fauxAssistantMessage("hi from helper") })),
+	);
+	const made = await tempDir();
+	cleanups.push(made.cleanup);
+	const port = new FakeTelegram();
+	const t = await startTestAgent({
+		dir: made.dir,
+		faux,
+		port,
+		config: { PI_PLUGINS: "helpers" },
+		deps: { pluginEnv: {} },
+	});
+	cleanups.push(() => t.close());
+	const hub = join(testConfig(made.dir).workdir, "hub");
+	await mkdir(hub, { recursive: true });
+	await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "/project hub"));
+	await waitFor(() => port.textsIn(CHAT).includes(`Project: ${hub}`), { what: "project reply" });
+	await t.agent.channel.handleUpdate(textUpdate(CHAT, 2, "go"));
+	await waitFor(() => port.textsIn(CHAT).includes("Parent got: hi from helper"), { what: "answer" });
+	const ids = await children(t.agent.harness);
+	assert.equal(ids.length, 1);
+	assert.equal(await cwdOf(t.agent.harness, ids[0] as number), hub, "the helper works in the chat's project");
 });
