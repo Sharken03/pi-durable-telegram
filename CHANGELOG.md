@@ -6,6 +6,9 @@
   Enable Threaded Mode in @BotFather; existing topic-less conversations keep their history. Replies, drafts,
   commands, buttons, files, helper agents and reminders stay in their originating topic. Topics share the same
   working directory and server permissions.
+- `/project` sets the directory a chat works in, so one topic can hold one repository and another a second;
+  `/project default` goes back, the choice survives a restart, `/status` shows it, and helpers work in the same place.
+  A directory outside the bot's own working directory is refused.
 - The agent names new topics with Telegram-generated titles once their task is clear, and can rename the current
   topic on request. Explicit names are kept; `TELEGRAM_TOPIC_NAMES=manual` disables automatic naming. An interrupted
   rename is not replayed blindly after a restart.
