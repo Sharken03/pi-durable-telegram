@@ -90,6 +90,7 @@ test("T-panel: /model, /m, /think and /t show the same panel; the aliases are no
 		"stop",
 		"compact",
 		"status",
+		"cost",
 		"project",
 		"model",
 		"think",
@@ -207,7 +208,7 @@ test("T-presets-checked: a preset level the model lacks becomes the nearest lowe
 	assert.match(warnings, /unknown model \\"faux\/none\\"/);
 	assert.deepEqual(
 		port.commands.map((c) => c.command).filter((name) => !["new", "stop", "compact", "status", "project"].includes(name)),
-		["model", "think", "mid", "verbose", "reasoning", "help"],
+		["cost", "model", "think", "mid", "verbose", "reasoning", "help"],
 	);
 	assert.equal((await send(t, port, 1, "/mid")).text, "Model: faux-think · low (mid).");
 });
