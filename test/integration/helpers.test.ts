@@ -10,7 +10,6 @@ import {
 } from "@earendil-works/pi-ai";
 import type { Harness } from "@earendil-works/pi-durable";
 import { toolHint } from "../../src/delivery/hints.ts";
-import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { CHAT, newFaux, startTestAgent, type TestAgent, tempDir, testConfig } from "../helpers/agent.ts";
 import { sleep, waitFor } from "../helpers/env.ts";
@@ -305,7 +304,7 @@ test("T-helper-plugin-off: a helper left running, then the plugin removed: the d
 	assert.ok((await childTaskStates(two.t.agent.harness)).every((state) => ["aborted", "completed"].includes(state)));
 });
 
-test("T-helper-project: a helper works in the directory the chat set with /project", async () => {
+test("T-helper-project: a helper keeps the bot's directory when the chat's project is on the phone", async () => {
 	const faux = newFaux();
 	await faux;
 	const seen: Seen[] = [];
@@ -323,13 +322,17 @@ test("T-helper-project: a helper works in the directory the chat set with /proje
 		deps: { pluginEnv: {} },
 	});
 	cleanups.push(() => t.close());
-	const hub = join(testConfig(made.dir).workdir, "hub");
-	await mkdir(hub, { recursive: true });
+	const workdir = testConfig(made.dir).workdir;
+	const hub = "/data/data/com.termux/files/home/projekter/hub";
 	await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "/project hub"));
 	await waitFor(() => port.textsIn(CHAT).includes(`Project: ${hub}`), { what: "project reply" });
 	await t.agent.channel.handleUpdate(textUpdate(CHAT, 2, "go"));
 	await waitFor(() => port.textsIn(CHAT).includes("Parent got: hi from helper"), { what: "answer" });
 	const ids = await children(t.agent.harness);
 	assert.equal(ids.length, 1);
-	assert.equal(await cwdOf(t.agent.harness, ids[0] as number), hub, "the helper works in the chat's project");
+	assert.equal(
+		await cwdOf(t.agent.harness, ids[0] as number),
+		workdir,
+		"the project is a phone path, so the helper keeps working in the bot's own directory",
+	);
 });

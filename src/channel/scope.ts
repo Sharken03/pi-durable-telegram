@@ -20,6 +20,8 @@ export type ChannelRuntime = {
 	readonly log: Logger;
 	readonly allowed: ReadonlySet<number>;
 	readonly workdir: string;
+	/** The phone's projects directory: a chat's `/project` is a path inside it. */
+	readonly phoneProjects: string;
 	readonly stt: Stt | undefined;
 	readonly models: Models | undefined;
 	readonly contextCap: number | undefined;

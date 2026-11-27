@@ -31,6 +31,8 @@ export type TelegramChannelOptions = {
 	readonly allowedUserIds: readonly number[];
 	/** The agent's working directory; attachments go to `<workdir>/inbox/`. */
 	readonly workdir: string;
+	/** The projects directory on the phone that `/project` resolves names against. */
+	readonly phoneProjects: string;
 	readonly model: ModelRef;
 	readonly thinkingLevel: ModelThinkingLevel;
 	/** The model panel's models and presets (`buildCatalog`); default: the configured model only. */
@@ -143,6 +145,7 @@ export function createTelegramChannel(options: TelegramChannelOptions): Telegram
 		port: () => port,
 		log,
 		workdir: options.workdir,
+		phoneProjects: options.phoneProjects,
 		allowed: new Set(options.allowedUserIds),
 		topicNames: options.topicNames ?? "auto",
 		...(options.limits?.uploadBytes === undefined ? {} : { uploadLimit: options.limits.uploadBytes }),
@@ -231,6 +234,7 @@ class Lifecycle {
 			log,
 			allowed: new Set(options.allowedUserIds),
 			workdir: options.workdir,
+			phoneProjects: options.phoneProjects,
 			stt: options.stt,
 			models: options.models,
 			contextCap: options.contextCap,

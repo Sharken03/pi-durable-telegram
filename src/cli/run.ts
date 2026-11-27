@@ -47,6 +47,7 @@ export async function runDaemon(config: Config, deps: DaemonDeps): Promise<void>
 		log.info("started", {
 			model: `${config.provider}/${config.modelId}`,
 			workdir: config.workdir,
+			phoneProjects: config.phoneProjects,
 			data: config.dataDir,
 		});
 	} catch (error) {

@@ -1,4 +1,3 @@
-import { statSync } from "node:fs";
 import type { Context } from "@earendil-works/chord";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import {
@@ -83,24 +82,14 @@ export class ConversationDirectory {
 		const agent = await conversation.agent(context);
 		const settings = await this.#harness.snapshot(ChatSettings, conversation.id, context);
 		const { model, thinkingLevel } = (settings === undefined ? undefined : this.#chosen(settings)) ?? this.#defaults;
-		const cwd = projectDir(settings?.cwd, this.#defaults.cwd);
+		// The chat's project lives on the phone, not here, so the agent always works in the bot's own directory; the
+		// project is a path that the phone's tools take (see ChatSettings.project).
 		const same =
 			agent.model?.provider === model.provider &&
 			agent.model.modelId === model.modelId &&
 			agent.thinkingLevel === thinkingLevel &&
-			agent.cwd === cwd;
-		if (!same) await conversation.configure({ model, thinkingLevel, cwd }, context);
+			agent.cwd === this.#defaults.cwd;
+		if (!same) await conversation.configure({ model, thinkingLevel, cwd: this.#defaults.cwd }, context);
 		return !same;
-	}
-}
-
-/** The chat's own directory when it is still there, else the bot's: a project that was moved or deleted must not
- * leave a chat unable to work. */
-function projectDir(stored: string | undefined, fallback: string): string {
-	if (stored === undefined || stored === fallback) return fallback;
-	try {
-		return statSync(stored).isDirectory() ? stored : fallback;
-	} catch {
-		return fallback;
 	}
 }

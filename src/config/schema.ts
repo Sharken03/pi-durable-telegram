@@ -14,6 +14,8 @@ export type Config = {
 	/** `PI_PRESETS`: `name=provider/model:level` items; checked against the model registry at start. */
 	readonly presets: readonly string[];
 	readonly workdir: string;
+	/** `PI_PHONE_PROJECTS`: the projects directory on the phone, which `/project` resolves names against. */
+	readonly phoneProjects: string;
 	readonly dataDir: string;
 	/** Credentials file: `PI_AUTH_FILE`, else pi's shared `auth.json` (see `resolveAuthFile`). */
 	readonly authFile: string;
@@ -65,6 +67,8 @@ const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 
 export const DEFAULT_PROVIDER = "anthropic";
 export const DEFAULT_MODEL = "claude-opus-5-5";
+/** The 8T's projects directory: the chats work there, through the phone's tools. */
+export const DEFAULT_PHONE_PROJECTS = "/data/data/com.termux/files/home/projekter";
 export const DEFAULT_THINKING: ModelThinkingLevel = "high";
 export const DEFAULT_VISION_MODEL = "deepseek/deepseek-flash";
 
@@ -86,6 +90,7 @@ export function parseConfig(env: Env, defaults: ConfigDefaults = { cwd: process.
 	const modelChoices = parseList(env.PI_MODEL_CHOICES);
 	const presets = parseList(env.PI_PRESETS);
 	const workdir = resolvePath(nonEmpty(env.PI_WORKDIR) ?? defaults.cwd, defaults.cwd);
+	const phoneProjects = nonEmpty(env.PI_PHONE_PROJECTS) ?? DEFAULT_PHONE_PROJECTS;
 	const dataDir = dataDirFromEnv(env, defaults);
 	const authFile = authFileFromEnv(env, defaults);
 	const instructionsPath = resolvePath(nonEmpty(env.PI_INSTRUCTIONS) ?? join(workdir, "AGENTS.md"), workdir);
@@ -113,6 +118,7 @@ export function parseConfig(env: Env, defaults: ConfigDefaults = { cwd: process.
 		modelChoices,
 		presets,
 		workdir,
+		phoneProjects,
 		dataDir,
 		authFile,
 		instructionsPath,

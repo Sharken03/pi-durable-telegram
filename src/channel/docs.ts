@@ -134,8 +134,8 @@ export type StoredSettings = {
 	reasoning?: boolean;
 	model?: string;
 	effort?: ModelThinkingLevel;
-	/** The directory this chat works in when it is not the bot's own (`/project`). */
-	cwd?: string;
+	/** The directory this chat works in on the phone (`/project`): a path inside the phone's projects root. */
+	project?: string;
 };
 
 export const ChatSettings = defineDoc<StoredSettings>({

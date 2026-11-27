@@ -82,6 +82,7 @@ export async function openAgent(config: Config, deps: OpenAgentDeps = {}): Promi
 		botToken: config.botToken,
 		allowedUserIds: config.allowedUserIds,
 		workdir: config.workdir,
+		phoneProjects: config.phoneProjects,
 		model: ref,
 		thinkingLevel: config.thinkingLevel,
 		catalog,

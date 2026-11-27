@@ -4,6 +4,7 @@ import { InboxDoc, LiveDoc, UsageDoc, type UsageState } from "@earendil-works/pi
 import { presetFor } from "../../agent/choices.ts";
 import { contextTokens } from "../../status/context-usage.ts";
 import { contextLimit, formatStatus, type UsageTotals } from "../../status/format-status.ts";
+import { ChatSettings } from "../docs.ts";
 import { recordKey } from "../intake.ts";
 import { type MessageScope, reply } from "../scope.ts";
 
@@ -36,6 +37,7 @@ export async function runStatus(scope: MessageScope): Promise<void> {
 	const agent = await scope.conversation.agent(BG);
 	const model = agent.model ?? scope.rt.model;
 	const live = await harness.snapshot(LiveDoc, id, BG);
+	const project = (await harness.snapshot(ChatSettings, id, BG))?.project;
 	const view = await scope.conversation.context(BG);
 	const text = formatStatus({
 		version: scope.rt.version,
@@ -43,7 +45,7 @@ export async function runStatus(scope: MessageScope): Promise<void> {
 		thinking: agent.thinkingLevel,
 		preset: presetFor(scope.rt.catalog, { ...model, effort: agent.thinkingLevel })?.name,
 		auth: await authLabel(scope, model.provider),
-		...(agent.cwd === scope.rt.workdir ? {} : { project: agent.cwd }),
+		...(project === undefined ? {} : { project }),
 		busy: live?.run !== undefined,
 		tool: live?.tools?.find((slot) => slot.status === "running")?.name,
 		queued: (await harness.snapshot(InboxDoc, id, BG))?.items.length ?? 0,
