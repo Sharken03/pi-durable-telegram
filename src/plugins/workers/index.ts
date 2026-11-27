@@ -52,7 +52,13 @@ export default function workersPlugin(ctx: PluginContext): Extension {
 				{
 					task: str({ minLength: 1, description: "The whole task, with the context and the directory it needs" }),
 					cwd: opt(str({ description: "Optional: the directory on the phone, default the phone's projects directory" })),
-					model: opt(str({ description: "Optional: provider/model, such as deepseek/deepseek-flash" })),
+					model: opt(
+						str({
+							description:
+								"Optional: provider/model, such as deepseek/deepseek-flash, or agy/default for the Antigravity CLI " +
+								"on the phone",
+						}),
+					),
 				},
 				{ open: true },
 			),
