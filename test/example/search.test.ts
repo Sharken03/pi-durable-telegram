@@ -239,7 +239,11 @@ test("T-search-agent: no key fails the plugin at load; a provider error reaches 
 			deps: { pluginEnv: {} },
 		});
 		try {
-			assert.match(bare.agent.plugins.report.problems[0]?.reason ?? "", /^did not load: no search key/);
+			const quiet = bare.agent.plugins.report.problems[0];
+			assert.match(quiet?.reason ?? "", /^no search key: set TAVILY_API_KEY/, "a missing key is not a load failure");
+			assert.equal(quiet?.quiet, true, "it is listed in /status, not posted in the chat");
+			assert.deepEqual(bare.agent.plugins.report.loaded, ["search"], "the plugin loads without its tool");
+			assert.ok(!port.created(CHAT).some((message) => message.text.startsWith("Plugin search")), "no notice in the chat");
 		} finally {
 			await bare.close();
 		}

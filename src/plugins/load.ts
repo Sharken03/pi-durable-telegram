@@ -21,17 +21,20 @@ export type PluginContext = {
 	readonly cancelReminder: (conversationId: ConversationId, id: string, context: Context) => Promise<void>;
 	/** A part of the plugin failed while the rest works: logged, told once in chat, listed in /status. */
 	readonly problem: (text: string) => void;
+	/** A plugin that is not configured rather than broken, such as search without a key: logged and listed in /status,
+	 * but not sent to the chat, because nothing can be done about it in the chat. */
+	readonly note: (text: string) => void;
 	/** Runs at shutdown, after the harness has closed. */
 	readonly onClose: (close: () => unknown) => void;
 };
 export type Plugin = (ctx: PluginContext) => Extension | Promise<Extension>;
-export type PluginProblem = { readonly plugin: string; readonly reason: string };
+export type PluginProblem = { readonly plugin: string; readonly reason: string; readonly quiet?: boolean };
 export type PluginReport = { readonly loaded: readonly string[]; readonly problems: readonly PluginProblem[] };
 export type LoadedPlugins = {
 	readonly report: PluginReport;
 	close(): Promise<void>;
 };
-type Base = Omit<PluginContext, "problem" | "onClose">;
+type Base = Omit<PluginContext, "problem" | "note" | "onClose">;
 
 const BUILTIN: Record<string, () => Promise<{ default: unknown }>> = {
 	search: () => import("./search.ts"),
@@ -89,8 +92,12 @@ export async function loadPlugins(
 			problems.push({ plugin, reason });
 			base.log.warn("plugin_problem", { plugin, reason });
 		};
+		const note = (reason: string) => {
+			problems.push({ plugin, reason, quiet: true });
+			base.log.info("plugin_note", { plugin, reason });
+		};
 		try {
-			const ctx = { ...base, problem, onClose: (fn: () => unknown) => closers.push(fn) };
+			const ctx = { ...base, problem, note, onClose: (fn: () => unknown) => closers.push(fn) };
 			const extension = await withTimeout(loadOne(plugin, ctx), LOAD_MS, LATE);
 			const names = claim(extension, taken);
 			install(extension); // pi-durable's own checks: section key format, duplicates within the extension

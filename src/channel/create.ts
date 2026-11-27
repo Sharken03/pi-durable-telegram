@@ -205,10 +205,14 @@ class Lifecycle {
 		this.#notifyPlugins(rt);
 	}
 
-	/** Once per start, not durable: each allowed user gets one line per plugin problem. */
+	/**
+	 * Once per start, not durable: each allowed user gets one line per plugin problem. A quiet problem is a plugin
+	 * that is not configured (search without a key), not one that broke: it is in /status and in the log, not here.
+	 */
 	#notifyPlugins(rt: ChannelRuntime): void {
-		if (rt.plugins.problems.length === 0) return;
-		const text = rt.plugins.problems.map((problem) => `Plugin ${problem.plugin}: ${problem.reason}`).join("\n");
+		const problems = rt.plugins.problems.filter((problem) => problem.quiet !== true);
+		if (problems.length === 0) return;
+		const text = problems.map((problem) => `Plugin ${problem.plugin}: ${problem.reason}`).join("\n");
 		for (const chat of rt.allowed) {
 			const send = rt.port.sendMessage(chat, text, {});
 			rt.track(

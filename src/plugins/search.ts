@@ -431,4 +431,17 @@ export function createSearchExtension(ctx: Pick<PluginContext, "env">, options: 
 	});
 }
 
-export default (ctx: PluginContext): Extension => createSearchExtension(ctx);
+/**
+ * Without a key the plugin is not configured rather than broken (the MCP `exa` server can search for free): it says so
+ * in /status and the log, and offers no tool, instead of posting a problem in the chat on every start.
+ */
+export default (ctx: PluginContext): Extension => {
+	try {
+		return createSearchExtension(ctx);
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		if (!reason.includes("no search key") && !reason.includes("is not set")) throw error;
+		ctx.note(reason.replace(/^Error: /, ""));
+		return defineExtension({ name: "search" });
+	}
+};

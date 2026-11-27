@@ -7,12 +7,13 @@ import { type MessageScope, reply } from "../scope.ts";
 type Balance = { account: string; balance?: string | null; age_seconds?: number; error?: string };
 
 /** What /cost shows, in the order the phone lists them: money, plan usage, weekly quota. */
-const ORDER = ["deepseek", "openrouter", "openrouter_free", "claude", "agy"];
+const ORDER = ["deepseek", "openrouter", "openrouter_free", "claude", "claude_2", "agy"];
 const MISSING: Readonly<Record<string, string>> = {
 	deepseek: "DS: ?",
 	openrouter: "OR: ?",
 	openrouter_free: "OR: ?",
 	claude: "Claude: ?",
+	claude_2: "Claude 2: ?",
 	agy: "agy: ?",
 };
 
@@ -39,9 +40,14 @@ export async function runCost(scope: MessageScope): Promise<void> {
 	await reply(scope, format(entries));
 }
 
-/** The three lines: what is left to spend, what the plans allow, and when a used-up group is back. */
+/** Four lines: what is left to spend, each Claude account's plan window, and the agy weekly quota. */
 export function format(entries: readonly Balance[]): string {
 	const byAccount = new Map(entries.map((entry) => [entry.account, entry.balance ?? MISSING[entry.account] ?? entry.account]));
 	const line = (accounts: readonly string[]) => accounts.map((account) => byAccount.get(account) ?? MISSING[account]).join(" · ");
-	return [line(["deepseek", "openrouter", "openrouter_free"]), line(["claude"]), line(["agy"])].join("\n");
+	return [
+		line(["deepseek", "openrouter", "openrouter_free"]),
+		line(["claude"]),
+		line(["claude_2"]),
+		line(["agy"]),
+	].join("\n");
 }

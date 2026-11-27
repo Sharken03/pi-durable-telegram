@@ -62,7 +62,8 @@ const BALANCES = [
 	{ account: "deepseek", balance: "DS: $21.13", age_seconds: 0 },
 	{ account: "openrouter", balance: "OR: $0.21", age_seconds: 0 },
 	{ account: "openrouter_free", balance: "OR: 135/1000 (01:00)", age_seconds: 0 },
-	{ account: "claude", balance: "Claude: 5h 0%, 7d 100%, spend €20.98 of €160", age_seconds: 187 },
+	{ account: "claude", balance: "Claude: 5h 0% · 7d 100% (Mon 04:00)", age_seconds: 187 },
+	{ account: "claude_2", balance: "Claude 2: login expired" },
 	{ account: "agy", balance: "agy: Gemini 99% · Claude/GPT 0% (Wed 16:49)", age_seconds: 0 },
 ];
 
@@ -95,7 +96,8 @@ test("/cost shows the balances, the plans and the weekly quota from the phone", 
 		port.textsIn(CHAT)[0],
 		[
 			"DS: $21.13 · OR: $0.21 · OR: 135/1000 (01:00)",
-			"Claude: 5h 0%, 7d 100%, spend €20.98 of €160",
+			"Claude: 5h 0% · 7d 100% (Mon 04:00)",
+			"Claude 2: login expired",
 			"agy: Gemini 99% · Claude/GPT 0% (Wed 16:49)",
 		].join("\n"),
 	);
@@ -111,6 +113,7 @@ test("/cost marks an account the phone could not read", async () => {
 	const text = port.textsIn(CHAT)[0] ?? "";
 	assert.match(text, /^DS: \$5\.00 · OR: \? · OR: \?$/m, "a missing account is a question mark");
 	assert.match(text, /^Claude: \?$/m);
+	assert.match(text, /^Claude 2: \?$/m);
 });
 
 test("/cost says so when the plugin is off", async () => {
