@@ -30,6 +30,11 @@ export function setWorkerClient(next: WorkerClient | undefined): void {
 	client = next;
 }
 
+/** The same client, for a command that talks to the phone without a worker: /cost reads the balances. */
+export function phoneClient(): WorkerClient | undefined {
+	return client;
+}
+
 /** How often a watcher asks the phone. Core registers the task, the plugin sets the pace. */
 export const DEFAULT_POLL_MS = 15_000;
 let pollMs = DEFAULT_POLL_MS;

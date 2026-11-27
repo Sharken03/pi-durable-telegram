@@ -1,5 +1,5 @@
-import { accessSync, constants, realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { BACKGROUND_CONTEXT as BG } from "@earendil-works/chord/context";
 import { ChatSettings } from "../docs.ts";
 import { recordKey } from "../intake.ts";
@@ -10,8 +10,9 @@ import { type MessageScope, reply } from "../scope.ts";
  * `varmehub` while another holds `happier`; `/project default` goes back to the bot's working directory.
  *
  * The path is resolved against the bot's working directory, never against the current one, so the same command means
- * the same thing twice. It must exist and lie inside the working directory: the chat's directory is a place to work,
- * not a way out of the sandbox the bot was given.
+ * the same thing twice. It must lie inside the working directory: the chat's directory is a place to work, not a way
+ * out of the sandbox the bot was given. A directory that is not there yet is made, so /project names a new project as
+ * easily as an old one.
  */
 export async function runProject(scope: MessageScope, args: string): Promise<void> {
 	if (!(await recordKey(scope.conversation, scope.key, BG, scope.updateId))) return;
@@ -37,7 +38,7 @@ export async function runProject(scope: MessageScope, args: string): Promise<voi
 		await reply(scope, `Only directories inside ${root} can be a project.`);
 		return;
 	}
-	const problem = check(target);
+	const problem = check(target, root);
 	if (problem !== undefined) {
 		await reply(scope, problem);
 		return;
@@ -67,13 +68,34 @@ function inside(root: string, path: string): boolean {
 	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-/** Why `path` cannot be a project, or undefined when it can. */
-function check(path: string): string | undefined {
+/**
+ * Why `path` cannot be a project, or undefined when it can. A directory that is not there yet is made, but only when
+ * the nearest existing parent really is inside the working directory, so a link out of it cannot be used to create
+ * anything outside.
+ */
+function check(path: string, root: string): string | undefined {
 	let stats;
 	try {
 		stats = statSync(path);
 	} catch {
-		return `There is no directory ${path}.`;
+		let parent = path;
+		while (!existsSync(parent) && dirname(parent) !== parent) parent = dirname(parent);
+		let real: string;
+		try {
+			real = realpathSync(parent);
+		} catch {
+			return `There is no access to ${path}.`;
+		}
+		if (!inside(realpathSync(root), real)) {
+			return `Only directories inside ${root} can be a project (that path is a link out of it).`;
+		}
+		try {
+			mkdirSync(path, { recursive: true });
+			stats = statSync(path);
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			return `Could not create ${path}: ${reason}`;
+		}
 	}
 	if (!stats.isDirectory()) return `${path} is not a directory.`;
 	try {

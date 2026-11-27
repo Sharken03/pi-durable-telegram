@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -55,15 +56,16 @@ test("/project hub: the chat works in that directory, and the next run uses it",
 	assert.equal(await cwdOf(t), join(workdir, "hub"));
 });
 
-test("/project default goes back, and an unknown directory is refused without moving", async () => {
+test("/project makes a new directory, and default goes back", async () => {
 	const { t, port, workdir } = await setup();
 	await mkdir(join(workdir, "hub"), { recursive: true });
 	await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "/project hub"));
 	await waitFor(() => replyTo(port, 1));
-	await t.agent.channel.handleUpdate(textUpdate(CHAT, 2, "/project nope"));
+	await t.agent.channel.handleUpdate(textUpdate(CHAT, 2, "/project nyt/projekt"));
 	await waitFor(() => replyTo(port, 2));
-	assert.equal(replyTo(port, 2), `There is no directory ${join(workdir, "nope")}.`);
-	assert.equal(await cwdOf(t), join(workdir, "hub"));
+	assert.equal(replyTo(port, 2), `Project: ${join(workdir, "nyt/projekt")}`);
+	assert.ok(existsSync(join(workdir, "nyt/projekt")), "the directory is made");
+	assert.equal(await cwdOf(t), join(workdir, "nyt/projekt"));
 	await t.agent.channel.handleUpdate(textUpdate(CHAT, 3, "/project default"));
 	await waitFor(() => replyTo(port, 3));
 	assert.equal(replyTo(port, 3), `Project: ${workdir} (the default)`);

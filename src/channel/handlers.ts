@@ -25,6 +25,7 @@ import { runCompact } from "./commands/compact.ts";
 import { ALIASES } from "./commands/list.ts";
 import { choiceNote, runModel, runPreset, runThink } from "./commands/model.ts";
 import { runNew } from "./commands/new.ts";
+import { runCost } from "./commands/cost.ts";
 import { runProject } from "./commands/project.ts";
 import { runReasoning, runVerbose } from "./commands/settings.ts";
 import { runHelp } from "./commands/start-help.ts";
@@ -127,6 +128,8 @@ async function runCommand(scope: MessageScope, typed: string, args: string): Pro
 			return runHelp(scope);
 		case "status":
 			return runStatus(scope);
+		case "cost":
+			return runCost(scope);
 		case "new":
 			return detach(scope, "new", () => runNew(scope));
 		case "stop":
