@@ -125,7 +125,7 @@ export default function workersPlugin(ctx: PluginContext): Extension {
 			),
 			replay: "safe",
 			execute: async ({ worker_id, lines }) =>
-				text(
+				answer(
 					await client.call("agent_result", {
 						worker_id: worker_id.trim(),
 						...(lines === undefined ? {} : { lines: Math.round(lines) }),
