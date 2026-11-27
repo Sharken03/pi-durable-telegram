@@ -6,6 +6,7 @@ const BEFORE_PRESETS: readonly BotCommandSpec[] = [
 	{ command: "stop", description: "Stop the current run; queued messages continue" },
 	{ command: "compact", description: "Compact the context, optionally with instructions" },
 	{ command: "status", description: "Model, context, spend and queue" },
+	{ command: "project", description: "The directory this chat works in" },
 	{ command: "model", description: "Choose the model, a preset or the effort level" },
 	{ command: "think", description: "Choose the effort level of the model" },
 ];

@@ -129,7 +129,14 @@ export const DEFAULT_VIEW: ChatView = { verbose: "on", reasoning: false };
  * Per-chat settings: output (/verbose, /reasoning; absent fields take `DEFAULT_VIEW`) and the model and effort level
  * the user chose (/model, /think, a preset; absent: the configured default).
  */
-export type StoredSettings = { verbose?: Verbose; reasoning?: boolean; model?: string; effort?: ModelThinkingLevel };
+export type StoredSettings = {
+	verbose?: Verbose;
+	reasoning?: boolean;
+	model?: string;
+	effort?: ModelThinkingLevel;
+	/** The directory this chat works in when it is not the bot's own (`/project`). */
+	cwd?: string;
+};
 
 export const ChatSettings = defineDoc<StoredSettings>({
 	kind: "tg.settings",

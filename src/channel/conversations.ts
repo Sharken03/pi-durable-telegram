@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import type { Context } from "@earendil-works/chord";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import {
@@ -65,7 +66,8 @@ export class ConversationDirectory {
 
 	/**
 	 * Apply the configured working directory to existing chats, and the model and thinking level: the chat's stored
-	 * choice when it is still usable, else the configured default (env changes after restart).
+	 * choice when it is still usable, else the configured default (env changes after restart). A chat that chose a
+	 * directory with `/project` keeps it, unless the directory is gone: then the chat's next task says so.
 	 */
 	async reconfigureAll(context: Context): Promise<number> {
 		const map = await this.#harness.snapshot(ChatMap, context);
@@ -80,8 +82,8 @@ export class ConversationDirectory {
 	async #reconfigure(conversation: Conversation, context: Context): Promise<boolean> {
 		const agent = await conversation.agent(context);
 		const settings = await this.#harness.snapshot(ChatSettings, conversation.id, context);
-		const { cwd } = this.#defaults;
 		const { model, thinkingLevel } = (settings === undefined ? undefined : this.#chosen(settings)) ?? this.#defaults;
+		const cwd = projectDir(settings?.cwd, this.#defaults.cwd);
 		const same =
 			agent.model?.provider === model.provider &&
 			agent.model.modelId === model.modelId &&
@@ -89,5 +91,16 @@ export class ConversationDirectory {
 			agent.cwd === cwd;
 		if (!same) await conversation.configure({ model, thinkingLevel, cwd }, context);
 		return !same;
+	}
+}
+
+/** The chat's own directory when it is still there, else the bot's: a project that was moved or deleted must not
+ * leave a chat unable to work. */
+function projectDir(stored: string | undefined, fallback: string): string {
+	if (stored === undefined || stored === fallback) return fallback;
+	try {
+		return statSync(stored).isDirectory() ? stored : fallback;
+	} catch {
+		return fallback;
 	}
 }

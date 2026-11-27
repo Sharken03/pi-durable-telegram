@@ -43,6 +43,7 @@ export async function runStatus(scope: MessageScope): Promise<void> {
 		thinking: agent.thinkingLevel,
 		preset: presetFor(scope.rt.catalog, { ...model, effort: agent.thinkingLevel })?.name,
 		auth: await authLabel(scope, model.provider),
+		...(agent.cwd === scope.rt.workdir ? {} : { project: agent.cwd }),
 		busy: live?.run !== undefined,
 		tool: live?.tools?.find((slot) => slot.status === "running")?.name,
 		queued: (await harness.snapshot(InboxDoc, id, BG))?.items.length ?? 0,

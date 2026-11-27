@@ -6,6 +6,8 @@ export type StatusInfo = {
 	readonly thinking: string;
 	/** The preset whose model and level are the chat's, if any. */
 	readonly preset?: string | undefined;
+	/** The chat's own working directory when `/project` set one; absent for the bot's directory. */
+	readonly project?: string | undefined;
 	readonly auth: string;
 	readonly busy: boolean;
 	readonly tool: string | undefined;
@@ -55,6 +57,7 @@ export function formatStatus(info: StatusInfo): string {
 	return [
 		`pi-durable-telegram ${info.version}, up ${formatDuration(info.uptimeMs)}`,
 		`Model: ${info.model}, thinking ${info.thinking}${info.preset === undefined ? "" : `, preset ${info.preset}`}`,
+		...(info.project === undefined ? [] : [`Project: ${info.project}`]),
 		`Auth: ${info.auth}`,
 		`State: ${state}, queued: ${info.queued}`,
 		`Context: ${context}`,

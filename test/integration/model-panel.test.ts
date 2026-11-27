@@ -85,7 +85,19 @@ test("T-panel: /model, /m, /think and /t show the same panel; the aliases are no
 		assert.equal(panel.silent, true);
 	}
 	const menu = port.commands.map((c) => c.command);
-	const expectedMenu = ["new", "stop", "compact", "status", "model", "think", "fast", "deep", "verbose", "reasoning"];
+	const expectedMenu = [
+		"new",
+		"stop",
+		"compact",
+		"status",
+		"project",
+		"model",
+		"think",
+		"fast",
+		"deep",
+		"verbose",
+		"reasoning",
+	];
 	assert.deepEqual(menu, [...expectedMenu, "help"]);
 });
 
@@ -194,7 +206,7 @@ test("T-presets-checked: a preset level the model lacks becomes the nearest lowe
 	assert.match(warnings, /\\"Bad\\" is not a command name/);
 	assert.match(warnings, /unknown model \\"faux\/none\\"/);
 	assert.deepEqual(
-		port.commands.map((c) => c.command).filter((name) => !["new", "stop", "compact", "status"].includes(name)),
+		port.commands.map((c) => c.command).filter((name) => !["new", "stop", "compact", "status", "project"].includes(name)),
 		["model", "think", "mid", "verbose", "reasoning", "help"],
 	);
 	assert.equal((await send(t, port, 1, "/mid")).text, "Model: faux-think · low (mid).");
