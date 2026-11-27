@@ -27,9 +27,10 @@ test("INF-18: a packed asset installs all four fixes into a clean npm project", 
 		const read = (path: string) => readFileSync(join(installed, path), "utf8");
 		assert.match(read("dist/delivery/wait-phase.js"), /whenBusy: "steer"/);
 		assert.match(read("dist/agent/settings.js"), /maxRetries: 5, baseDelayMs: 5000, maxAgentDelayMs: 60000/);
+		// A stop that cannot be tied to a draft is silent and logged; the run it would stop is never touched.
 		assert.match(
 			read("dist/channel/handlers.js"),
-			/liveRun === undefined[\s\S]*?draft_stop_idle_ignored[\s\S]*?return;/,
+			/draft === undefined[\s\S]*?draft_stop_idle_ignored[\s\S]*?return;/,
 		);
 		const installedRequire = createRequire(join(installed, "package.json"));
 		const target = join(dirname(installedRequire.resolve("@earendil-works/pi-durable")), "harness/generation.js");
