@@ -39,6 +39,7 @@ const BUILTIN: Record<string, () => Promise<{ default: unknown }>> = {
 	skills: () => import("./skills.ts"),
 	helpers: () => import("./helpers.ts"),
 	reminders: () => import("./reminders/index.ts"),
+	workers: () => import("./workers/index.ts"),
 };
 const LOAD_MS = 60_000;
 const LATE = `did not finish loading in ${LOAD_MS / 1000} s`;

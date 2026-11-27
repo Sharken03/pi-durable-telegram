@@ -6,6 +6,10 @@
   Enable Threaded Mode in @BotFather; existing topic-less conversations keep their history. Replies, drafts,
   commands, buttons, files, helper agents and reminders stay in their originating topic. Topics share the same
   working directory and server permissions.
+- Workers: `start_worker` starts a headless agent on the phone in a project directory and the chat gets its log as a
+  new message — in the topic that started it — when it is done; `worker_status`, `worker_result`, `worker_send` and
+  `worker_stop` follow up. The wait is a durable task, so it survives a restart. The phone's home-agent decides what a
+  worker may reach.
 - `/project` sets the directory a chat works in, so one topic can hold one repository and another a second;
   `/project default` goes back, the choice survives a restart, `/status` shows it, and helpers work in the same place.
   A directory outside the bot's own working directory is refused.
