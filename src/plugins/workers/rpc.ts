@@ -29,7 +29,7 @@ export function createWorkerClient(url: string, token: string): WorkerClient {
 			signal: signal ?? AbortSignal.timeout(TIMEOUT_MS),
 		});
 		const found = sent.headers.get("mcp-session-id");
-		if (found !== undefined) session = found;
+		if (found !== null) session = found;
 		if (!sent.ok) {
 			// A session the server forgot is not an error: the next call makes a new one.
 			if (sent.status === 404 || sent.status === 400) session = undefined;

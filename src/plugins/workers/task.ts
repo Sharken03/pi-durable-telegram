@@ -1,11 +1,5 @@
 import type { Context } from "@earendil-works/chord";
-import {
-	defineDoc,
-	defineTask,
-	type NextTaskState,
-	type TaskRuntime,
-	type Tx,
-} from "@earendil-works/pi-durable";
+import { defineDoc, defineTask, type TaskRuntime, type Tx } from "@earendil-works/pi-durable";
 import { ChatInfo } from "../../channel/docs.ts";
 import { admitIn } from "../../channel/intake.ts";
 import { DELIVER_TASK, type DeliverTask } from "../../delivery/task.ts";
@@ -28,9 +22,7 @@ export const WorkerWatch = defineDoc<{ items: Record<string, Watched> }>({
 export const WORKER_TASK = "tg.worker";
 type Input = { id: string; worker: string };
 type State = { phase: "poll"; due: number };
-type Next = NextTaskState<State, null>;
 type Runtime = TaskRuntime<Input, State, null, object>;
-const TERMINAL: Next = { status: "terminal", outcome: { status: "completed", result: null } };
 
 /** The client the plugin loaded; undefined when the plugin is off, and then a watcher only reports and stops. */
 let client: WorkerClient | undefined;
@@ -58,7 +50,7 @@ async function statusOf(worker: string): Promise<Status> {
  * durable sleep rather than a timer, so a service that was down resumes where it was. When the worker is done its log
  * becomes the chat's next message — in the topic that started it, since ChatInfo carries the thread.
  */
-async function finish(tx: Tx, runtime: Runtime, worker: string): Promise<Next> {
+async function finish(tx: Tx, runtime: Runtime, worker: string): Promise<void> {
 	const doc = await tx.doc(WorkerWatch, runtime.conversationId);
 	const entry = Object.hasOwn(doc.items, worker) ? doc.items[worker] : undefined;
 	const status = await statusOf(worker).catch(() => undefined);
@@ -77,7 +69,6 @@ async function finish(tx: Tx, runtime: Runtime, worker: string): Promise<Next> {
 		content: `${head}\n${log}`,
 	});
 	delete doc.items[worker];
-	return TERMINAL;
 }
 
 /**
@@ -96,21 +87,22 @@ export function createWorkerTask() {
 					await runtime.commit(async (tx) => {
 						delete (await tx.doc(WorkerWatch, runtime.conversationId)).items[task.input.worker];
 					}, context);
-					return TERMINAL;
+					return;
 				}
 				const status = await statusOf(task.input.worker).catch(() => undefined);
 				if (status?.status === "running" || status?.status === "starting") {
 					await runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, context);
 					return;
 				}
-				return runtime.commit((tx) => finish(tx, runtime, task.input.worker), context);
+				await runtime.commit((tx) => finish(tx, runtime, task.input.worker), context);
 			},
 		},
-		abort: (task, runtime, context) =>
-			runtime.commit(async (tx) => {
+		abort: async (task, runtime, context) => {
+			await runtime.commit(async (tx) => {
 				delete (await tx.doc(WorkerWatch, runtime.conversationId)).items[task.input.worker];
 				return { status: "terminal", outcome: { status: "aborted" } };
-			}, context),
+			}, context);
+		},
 	});
 }
 
