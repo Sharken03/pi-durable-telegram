@@ -94,7 +94,10 @@ export function createWorkerTask() {
 					await runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, context);
 					return;
 				}
-				await runtime.commit((tx) => finish(tx, runtime, task.input.worker), context);
+				await runtime.commit(async (tx) => {
+					await finish(tx, runtime, task.input.worker);
+					return { status: "terminal", outcome: { status: "completed", result: null } };
+				}, context);
 			},
 		},
 		abort: async (task, runtime, context) => {

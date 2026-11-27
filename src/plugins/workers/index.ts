@@ -12,7 +12,7 @@ type Status = { status: string; seconds?: number; exit?: number };
 type Listed = { running: number; max: number; workers: Status[] };
 
 /** What a tool answers: one text block, as every tool of the harness does. */
-const text = (value: string) => ({ output: [{ type: "text" as const, text: value }] });
+const answer = (value: string) => ({ output: [{ type: "text" as const, text: value }] });
 
 function pollMsOf(ctx: PluginContext): number {
 	const raw = ctx.env.PI_WORKERS_POLL_MS?.trim();
@@ -79,7 +79,7 @@ export default function workersPlugin(ctx: PluginContext): Extension {
 						{ ownership: { kind: "conversation" }, background: true, conversationId: api.conversationId },
 					);
 				}, context);
-				return text(`Started ${started.id} in ${started.cwd} (${started.model}). Its result arrives here when it is done.`);
+				return answer(`Started ${started.id} in ${started.cwd} (${started.model}). Its result arrives here when it is done.`);
 			},
 		}),
 		defineTool({
@@ -96,7 +96,7 @@ export default function workersPlugin(ctx: PluginContext): Extension {
 				const name = worker_id?.trim() ?? "";
 				if (name !== "") {
 					const one = await client.json<Status>("agent_status", { worker_id: name });
-					return text(
+					return answer(
 						`${name}: ${one.status}${one.seconds === undefined ? "" : `, ${Math.round(one.seconds)} s`}${
 							one.exit === undefined ? "" : `, exit ${one.exit}`
 						}`,
@@ -106,7 +106,7 @@ export default function workersPlugin(ctx: PluginContext): Extension {
 				const lines = all.workers.map(
 					(worker, index) => `${index + 1}. ${worker.status}${worker.seconds === undefined ? "" : ` ${Math.round(worker.seconds)}s`}`,
 				);
-				return text(
+				return answer(
 					`${all.running} of ${all.max} running on the phone${lines.length === 0 ? "" : `:\n${lines.join("\n")}`}`,
 				);
 			},
@@ -147,7 +147,7 @@ export default function workersPlugin(ctx: PluginContext): Extension {
 			replay: "unsafe",
 			execute: async ({ worker_id, text }) => {
 				const again = await client.json<Status>("send_to_agent", { worker_id: worker_id.trim(), text });
-				return text(`${worker_id}: ${again.status}`);
+				return answer(`${worker_id}: ${again.status}`);
 			},
 		}),
 		defineTool({
@@ -162,7 +162,7 @@ export default function workersPlugin(ctx: PluginContext): Extension {
 			replay: "unsafe",
 			execute: async ({ worker_id }) => {
 				const stopped = await client.json<Status>("stop_agent", { worker_id: worker_id.trim() });
-				return text(`${worker_id}: ${stopped.status}`);
+				return answer(`${worker_id}: ${stopped.status}`);
 			},
 		}),
 	];
