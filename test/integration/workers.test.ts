@@ -12,11 +12,17 @@ import { textUpdate } from "../helpers/updates.ts";
 /** A stand-in for the phone's home-agent: the MCP handshake and the tools the workers plugin calls. */
 type Fake = { url: string; calls: { name: string; args: Record<string, unknown> }[]; close(): Promise<void> };
 
-async function fakeHomeAgent(options: { statuses?: string[] } = {}): Promise<Fake> {
+async function fakeHomeAgent(options: { statuses?: string[]; started?: Record<string, unknown> } = {}): Promise<Fake> {
 	const calls: { name: string; args: Record<string, unknown> }[] = [];
 	const statuses = [...(options.statuses ?? ["running", "running", "done"])];
 	const answers: Record<string, (args: Record<string, unknown>) => unknown> = {
-		start_agent: (args) => ({ id: "w1", cwd: String(args.cwd ?? "/work"), model: "deepseek/deepseek-flash", status: "running" }),
+		start_agent: (args) => ({
+			id: "w1",
+			cwd: String(args.cwd ?? "/work"),
+			model: "deepseek/deepseek-flash",
+			status: "running",
+			...options.started,
+		}),
 		agent_status: (args) => {
 			if (args.worker_id === undefined) return { running: 0, max: 2, workers: [] };
 			const status = statuses.length > 1 ? statuses.shift() : statuses[0];
@@ -88,10 +94,11 @@ afterEach(async () => {
 async function setup(
 	fake: Fake,
 	options: { threadId?: number } = {},
-): Promise<{ t: TestAgent; port: FakeTelegram; seen: string[] }> {
+): Promise<{ t: TestAgent; port: FakeTelegram; seen: string[]; toolResults: string[] }> {
 	const { dir, cleanup } = await tempDir();
 	const port = new FakeTelegram();
 	const seen: string[] = [];
+	const toolResults: string[] = [];
 	const faux = newFaux();
 	// One router for every request: the wake, the tool result and the first message are told apart by what arrived,
 	// so extra turns (a retried request, for instance) do not run off the end of a fixed list.
@@ -101,7 +108,11 @@ async function setup(
 		const user = lastUserText(messages);
 		seen.push(user);
 		if (user.startsWith("[worker")) return fauxAssistantMessage("Got it.");
-		if (last?.role === "toolResult") return fauxAssistantMessage("Started w1.");
+		if (last?.role === "toolResult") {
+			const content = (last as unknown as { content?: unknown }).content;
+			toolResults.push(typeof content === "string" ? content : JSON.stringify(content ?? ""));
+			return fauxAssistantMessage("Started w1.");
+		}
 		return fauxAssistantMessage([fauxToolCall("start_worker", { task: "read README", cwd: "/work/hub" }, { id: "c1" })], {
 			stopReason: "toolUse",
 		});
@@ -121,7 +132,7 @@ async function setup(
 		},
 	});
 	cleanups.push(cleanup, () => t.close());
-	return { t, port, seen };
+	return { t, port, seen, toolResults };
 }
 
 const toolResult = (port: FakeTelegram): string => port.textsIn(CHAT).join("\n");
@@ -207,4 +218,23 @@ test("without a token the plugin says so and registers no worker tools", async (
 	});
 	cleanups.push(cleanup, () => t.close());
 	assert.match(t.logs.join("\n"), /workers.*no token|no token.*workers/s, "the problem is reported once");
+});
+
+test("the start answer names the model the phone chose and what it passed over", async () => {
+	// The phone picks when the model is left out; its answer carries the choice and the skips, and the bot shows both.
+	const fake = await fakeHomeAgent({
+		started: {
+			model: "agy/gemini-3.8-flash-medium",
+			skipped: ["claude/sonnet: plan window 100% used", "claude2/sonnet: limit reached: weekly limit until Sun 00:00"],
+		},
+	});
+	cleanups.push(() => fake.close());
+	const { t, toolResults } = await setup(fake);
+	await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "start a worker in hub"));
+	await waitFor(() => toolResults.some((text) => text.includes("Past over")), { what: "the answer naming the choice" });
+	const sent = fake.calls[0];
+	assert.equal(sent?.args.model, undefined, "the bot leaves the choice to the phone");
+	const answer = toolResults.find((text) => text.includes("Past over")) ?? "";
+	assert.match(answer, /agy\/gemini-3\.8-flash-medium/);
+	assert.match(answer, /Past over: claude\/sonnet: plan window 100% used; claude2\/sonnet: limit reached/);
 });
