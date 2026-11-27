@@ -78,7 +78,11 @@ async function sendFile(
 	}
 	const caption = args.caption === undefined ? undefined : truncate(args.caption, CAPTION_LIMIT);
 	const as = await sendKind(located.path, located.size);
-	return upload({ chatId: chat.chatId, path: located.path, size: located.size, caption, as }, deps, context);
+	return upload(
+		{ chatId: chat.chatId, threadId: chat.threadId, path: located.path, size: located.size, caption, as },
+		deps,
+		context,
+	);
 }
 
 type Located = { path: string; size: number };
@@ -119,13 +123,21 @@ async function sendKind(path: string, size: number): Promise<SendKind> {
 	}
 }
 
-type Upload = { chatId: number; path: string; size: number; caption: string | undefined; as: SendKind };
+type Upload = {
+	chatId: number;
+	/** The private-chat topic the file goes to; absent for the main chat. */
+	threadId?: number;
+	path: string;
+	size: number;
+	caption: string | undefined;
+	as: SendKind;
+};
 
 async function upload(job: Upload, deps: SendFileDeps, context: Context): Promise<ToolExecutionResult> {
 	const port = deps.port();
 	const signal = context.abortSignal;
 	await port
-		.sendChatAction(job.chatId, job.as === "photo" ? "upload_photo" : "upload_document", signal)
+		.sendChatAction(job.chatId, job.as === "photo" ? "upload_photo" : "upload_document", signal, job.threadId)
 		.catch(() => undefined);
 	try {
 		const kind = await sendOnce(port, job, signal);
@@ -143,15 +155,15 @@ async function sendOnce(
 ): Promise<SendKind> {
 	if (job.as !== "document") {
 		try {
-			if (job.as === "photo") await port.sendPhoto(job.chatId, job.path, job.caption, signal);
-			else await port.sendAnimation(job.chatId, job.path, job.caption, signal);
+			if (job.as === "photo") await port.sendPhoto(job.chatId, job.path, job.caption, signal, job.threadId);
+			else await port.sendAnimation(job.chatId, job.path, job.caption, signal, job.threadId);
 			return job.as;
 		} catch (error) {
 			// Telegram rejects some valid images as photos or animations (dimensions, format); a document always works.
 			if (classifyTelegramError(error).kind !== "rejected") throw error;
 		}
 	}
-	await port.sendDocument(job.chatId, job.path, job.caption, signal);
+	await port.sendDocument(job.chatId, job.path, job.caption, signal, job.threadId);
 	return "document";
 }
 

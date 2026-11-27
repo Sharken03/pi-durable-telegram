@@ -17,6 +17,7 @@ export type PreviewFrame = { readonly text: string; readonly status: string };
 export type PreviewOptions = {
 	readonly port: TelegramPort;
 	readonly chatId: number;
+	readonly threadId?: number;
 	readonly replyTo: number | undefined;
 	readonly log: Logger;
 	/** Existing preview message from an earlier invocation: edited, never re-sent. */
@@ -122,7 +123,7 @@ export class PreviewStreamer {
 	async #deliver(text: string): Promise<void> {
 		const { port, chatId, signal } = this.#o;
 		if (this.#draft) {
-			await port.sendDraft(chatId, this.#o.draftId ?? 0, draftMarkdown(text), signal);
+			await port.sendDraft(chatId, this.#o.draftId ?? 0, draftMarkdown(text), signal, this.#o.threadId);
 			this.#draftShown = true;
 			this.#armRefresh();
 			return;
@@ -138,8 +139,12 @@ export class PreviewStreamer {
 			return;
 		}
 		// The preview is status: silent. The answer that replaces it is an edit, which never rings.
-		const first = { ...options, silent: true };
-		const reply = this.#o.replyTo === undefined ? first : { ...first, replyTo: this.#o.replyTo };
+		const reply = {
+			...options,
+			silent: true,
+			...(this.#o.replyTo === undefined ? {} : { replyTo: this.#o.replyTo }),
+			...(this.#o.threadId === undefined ? {} : { threadId: this.#o.threadId }),
+		};
 		const sent = await withPlainFallback(
 			() => port.sendMessage(chatId, html, { ...reply, html: true }, signal),
 			() => port.sendMessage(chatId, text, reply, signal),

@@ -23,6 +23,7 @@ import { ConversationDirectory, type StoredChoice } from "./conversations.ts";
 import { createTelegramExtension } from "./extension.ts";
 import { handleUpdate } from "./handlers.ts";
 import type { ChannelRuntime } from "./scope.ts";
+import type { TopicNamesMode } from "./topic-names.ts";
 
 export type TelegramChannelOptions = {
 	readonly botToken: string;
@@ -40,6 +41,8 @@ export type TelegramChannelOptions = {
 	readonly apiRoot?: string;
 	/** Answers as rich messages (buttons, tables) streamed as native drafts; default false: HTML messages. */
 	readonly rich?: boolean;
+	/** Auto-name observed implicit topic names once; manual mode renames only when the user asks. Default auto. */
+	readonly topicNames?: TopicNamesMode;
 	readonly log?: Logger;
 	readonly limits?: { readonly downloadBytes?: number; readonly uploadBytes?: number };
 	/** Used by /status for the context window and auth state. */
@@ -57,7 +60,7 @@ export type TelegramChannelOptions = {
 };
 
 export interface TelegramChannel {
-	/** Install in the registry before `Harness.open`: tasks `tg.deliver`, `tg.compact-report`, `tg.remind`; tool `telegram_send_file`. */
+	/** Install before `Harness.open`: delivery/reminder tasks and the Telegram file/topic tools. */
 	readonly extension: Extension;
 	/**
 	 * After `Harness.open`: applies the configured agent to existing chats, registers commands, calls
@@ -141,6 +144,7 @@ export function createTelegramChannel(options: TelegramChannelOptions): Telegram
 		log,
 		workdir: options.workdir,
 		allowed: new Set(options.allowedUserIds),
+		topicNames: options.topicNames ?? "auto",
 		...(options.limits?.uploadBytes === undefined ? {} : { uploadLimit: options.limits.uploadBytes }),
 	});
 	const lifecycle = new Lifecycle({ options, catalog, log, onFatal, bot, port, deliver, compactReport });

@@ -46,6 +46,8 @@ export type MessageScope = {
 	readonly conversation: Conversation;
 	readonly message: Message;
 	readonly chatId: number;
+	/** Private-chat topic; absent in the general chat and in records created before topics were supported. */
+	readonly threadId?: number;
 	readonly messageId: number;
 	/** The Telegram update that carried the message. */
 	readonly updateId: number;
@@ -54,7 +56,7 @@ export type MessageScope = {
 };
 
 /** What a command needs; `messageId` is absent for a draft's stop button. */
-export type CommandScope = Pick<MessageScope, "rt" | "conversation" | "chatId" | "key"> & {
+export type CommandScope = Pick<MessageScope, "rt" | "conversation" | "chatId" | "threadId" | "key"> & {
 	readonly messageId?: number;
 	readonly updateId?: number;
 };
@@ -65,11 +67,11 @@ export type CommandScope = Pick<MessageScope, "rt" | "conversation" | "chatId" |
  */
 export async function reply(scope: CommandScope, text: string): Promise<void> {
 	try {
-		await scope.rt.port.sendMessage(
-			scope.chatId,
-			text,
-			scope.messageId === undefined ? { silent: true } : { replyTo: scope.messageId, silent: true },
-		);
+		await scope.rt.port.sendMessage(scope.chatId, text, {
+			...(scope.messageId === undefined ? {} : { replyTo: scope.messageId }),
+			...(scope.threadId === undefined ? {} : { threadId: scope.threadId }),
+			silent: true,
+		});
 	} catch (error) {
 		scope.rt.log.warn("reply_failed", { chat: scope.chatId, ...telegramErrorSummary(error) });
 	}

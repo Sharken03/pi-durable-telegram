@@ -291,10 +291,11 @@ function rejected(job: Job, error: unknown): Sent {
 
 async function sendNew(job: Job, chunk: Piece, first: boolean): Promise<Sent> {
 	const { port } = job;
-	const { chatId, messageId } = job.task.input;
+	const { chatId, messageId, threadId } = job.task.input;
 	const signal = job.runtime.signal;
 	const replyTo = {
 		...(first && messageId !== undefined ? { replyTo: messageId } : {}),
+		...(threadId === undefined ? {} : { threadId }),
 		...(chunk.silent === true ? { silent: true } : {}),
 		...(chunk.buttons === undefined ? {} : { buttons: chunk.buttons }),
 	};

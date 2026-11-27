@@ -32,30 +32,43 @@ export async function handleTap(rt: ChannelRuntime, query: CallbackQuery): Promi
 		rt.log.debug("callback_answer_failed", telegramErrorSummary(error));
 	});
 	const message = query.message;
-	if (query.data === undefined || message === undefined) return;
+	// Telegram omits the topic of inaccessible messages; never send their callback into the general conversation.
+	if (query.data === undefined || message === undefined || message.date === 0) return;
 	const chatId = message.chat.id;
 	const messageId = message.message_id;
-	const conversation = await rt.directory.get(chatId, BG);
-	if (query.data === RETRY_DATA) return retry(rt, conversation, { chatId, messageId, queryId: query.id });
-	if (query.data === STOP_DATA) return stop(rt, conversation, { chatId, messageId, queryId: query.id });
+	const threadId = callbackThread(message);
+	const conversation = await rt.directory.get(chatId, BG, threadId);
+	const tap: ErrorTap = { chatId, messageId, queryId: query.id, ...(threadId === undefined ? {} : { threadId }) };
+	if (query.data === RETRY_DATA) return retry(rt, conversation, tap);
+	if (query.data === STOP_DATA) return stop(rt, conversation, tap);
 	if (isPanelData(query.data)) {
 		const markup = "reply_markup" in message ? message.reply_markup : undefined;
 		return handlePanelTap(rt, conversation, { chatId, messageId, queryId: query.id, data: query.data, markup });
 	}
 	if (query.data.startsWith(DIFF_DATA)) {
 		const which = query.data.slice(DIFF_DATA.length);
-		rt.track(sendDiff(rt, conversation, { chatId, messageId, queryId: query.id }, which));
+		rt.track(sendDiff(rt, conversation, tap, which));
 		return;
 	}
 	const sent = (await rt.harness.snapshot(Buttons, conversation.id, BG))?.messages[String(messageId)];
 	const context = contextLine(sent ?? ("text" in message ? (message.text ?? "") : ""), CONTEXT_CHARS);
 	const body = context === "" ? query.data : `${query.data}\n\n(button under your message: «${context}»)`;
 	const content = withTimeStamp(body, new Date(), { note: await choiceNote(rt, conversation) });
-	const input = { chatId, messageId, requestId: `tg:${chatId}:cq:${query.id}`, content };
+	const input = {
+		chatId,
+		messageId,
+		requestId: `tg:${chatId}:cq:${query.id}`,
+		content,
+		...(threadId === undefined ? {} : { threadId }),
+	};
 	const result = await admit(conversation, rt.deliver, input, BG);
 	rt.log.info(result === "admitted" ? "tap_admitted" : "update_duplicate", { chat: chatId, message: messageId });
 	if (result === "admitted" && sent !== undefined)
 		rt.track(markChoice(rt, conversation, { chatId, messageId, sent, data: query.data }));
+}
+
+function callbackThread(message: NonNullable<CallbackQuery["message"]>): number | undefined {
+	return "message_thread_id" in message ? message.message_thread_id : undefined;
 }
 
 /** Mark the tapped button and disable the other choices of its row; failures are logged, never thrown. */
@@ -73,7 +86,8 @@ async function markChoice(rt: ChannelRuntime, conversation: Conversation, tap: T
 	}
 }
 
-type ErrorTap = { chatId: number; messageId: number; queryId: string };
+/** A tap on a button of a message that is not the model panel; `threadId` is its private-chat topic. */
+type ErrorTap = { chatId: number; messageId: number; queryId: string; threadId?: number };
 
 /**
  * Retry under an error message: admit the request behind it again, with the time of the tap, as a reply to the same
@@ -95,6 +109,7 @@ async function retry(rt: ChannelRuntime, conversation: Conversation, tap: ErrorT
 		...(kept.replyTo === undefined ? {} : { messageId: kept.replyTo }),
 		requestId: `tg:${tap.chatId}:cq:${tap.queryId}`,
 		content,
+		...(tap.threadId === undefined ? {} : { threadId: tap.threadId }),
 	};
 	const admitted = await conversation.commit(async (tx) => {
 		if (!(await admitIn(tx, id, rt.deliver, input))) return false;
@@ -110,7 +125,14 @@ async function retry(rt: ChannelRuntime, conversation: Conversation, tap: ErrorT
 /** Stop under an error message: /stop for what runs now, once per callback query; the buttons go. */
 async function stop(rt: ChannelRuntime, conversation: Conversation, tap: ErrorTap): Promise<void> {
 	const key = `tg:${tap.chatId}:cq:${tap.queryId}`;
-	const scope = { rt, conversation, chatId: tap.chatId, messageId: tap.messageId, key };
+	const scope = {
+		rt,
+		conversation,
+		chatId: tap.chatId,
+		messageId: tap.messageId,
+		key,
+		...(tap.threadId === undefined ? {} : { threadId: tap.threadId }),
+	};
 	const work = runStop(scope).catch((error: unknown) => {
 		if (isFatalHarnessError(error)) rt.onFatal("storage failure in /stop", error);
 		else rt.log.error("command_failed", { command: "stop", error: errorSummary(error) });
@@ -124,7 +146,11 @@ async function sendDiff(rt: ChannelRuntime, conversation: Conversation, tap: Err
 	try {
 		const files = (await rt.harness.snapshot(Diffs, conversation.id, BG))?.messages[String(tap.messageId)];
 		const diff = diffFor(files, which);
-		const options = { replyTo: tap.messageId, silent: true };
+		const options = {
+			replyTo: tap.messageId,
+			silent: true,
+			...(tap.threadId === undefined ? {} : { threadId: tap.threadId }),
+		};
 		if (diff === undefined) {
 			rt.log.info("diff_unknown", fields);
 			await rt.port.sendMessage(tap.chatId, DIFF_GONE_TEXT, options);

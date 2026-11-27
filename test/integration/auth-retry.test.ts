@@ -82,7 +82,8 @@ test("INF-18: draft stop aborts a sleeping auth retry without starting another p
 	const faux = newFaux();
 	faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "401 authentication_error" })]);
 	const port = new FakeTelegram();
-	const t = await startTestAgent({ dir, faux, port });
+	// Native drafts carry the id the stop button belongs to; only a rich chat has them.
+	const t = await startTestAgent({ dir, faux, port, config: { TELEGRAM_RICH: "auto" } });
 	try {
 		await t.agent.channel.handleUpdate(textUpdate(CHAT, 1, "work"));
 		await waitFor(async () =>
@@ -90,7 +91,8 @@ test("INF-18: draft stop aborts a sleeping auth retry without starting another p
 				(task) => task.record.kind === "pi.generation" && task.state.kind === "sleeping",
 			),
 		);
-		await t.agent.channel.handleUpdate(stoppedUpdate(CHAT, 123));
+		const draft = await waitFor(() => port.drafts.at(-1));
+		await t.agent.channel.handleUpdate(stoppedUpdate(CHAT, draft.draftId));
 		await waitFor(() => port.textsIn(CHAT).includes("Stopped."));
 		assert.equal(faux.state.callCount, 1);
 		assert.deepEqual(t.fatal, []);
