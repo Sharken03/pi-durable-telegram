@@ -90,7 +90,7 @@ test("topic preview: a rejected draft and HTML preview fall back inside the same
 		intervalMs: 1,
 	});
 	try {
-		streamer.push({ text: "answer", hint: undefined });
+		streamer.push({ text: "answer", status: "" });
 		await waitFor(() => port.created(5).length === 1);
 		assert.equal(port.created(5)[0]?.threadId, 37);
 		assert.equal(port.created(5)[0]?.replyTo, 9);
@@ -121,7 +121,7 @@ test("topic previews and typing stay separate for two topics in the same chat", 
 			}),
 	);
 	try {
-		for (const streamer of streamers) streamer.push({ text: "answer", hint: undefined });
+		for (const streamer of streamers) streamer.push({ text: "answer", status: "" });
 		await waitFor(() => port.drafts.length === 2);
 		assert.deepEqual(port.drafts.map((draft) => draft.threadId).sort(), [37, 41]);
 		assert.equal(port.calls.find((call) => call.method === "sendChatAction")?.threadId, 37);
