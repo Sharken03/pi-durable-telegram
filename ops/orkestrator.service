@@ -13,7 +13,7 @@ Description=orkestrator (durable agent in Telegram)
 [Service]
 Type=simple
 WorkingDirectory=%h
-ExecStart=/home/orkestrator/node/bin/node --max-old-space-size=128 --max-semi-space-size=2 /home/orkestrator/app/src/cli/main.ts run --env-file %h/.config/orkestrator/env
+ExecStart=/home/orkestrator/node/bin/node --max-old-space-size=256 --max-semi-space-size=4 /home/orkestrator/app/src/cli/main.ts run --env-file %h/.config/orkestrator/env
 Environment=NODE_ENV=production
 Restart=on-failure
 RestartSec=3
